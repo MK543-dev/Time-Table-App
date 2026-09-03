@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
@@ -7,7 +8,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+// Port resolution:
+// In AI Studio sandbox, NGINX is bound to 8080 and proxies internal traffic to 3000.
+// In standalone Cloud Run / container, the service must bind directly to Cloud Run's $PORT (default 8080).
+const PORT = (process.env.NGINX_PORT || process.env.APPLET_ID)
+  ? 3000
+  : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -31,6 +37,1738 @@ function getAIClient(): GoogleGenAI | null {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
+
+// ==========================================
+// DAILY TASKS BACKEND DATA STORE & ENDPOINTS
+// ==========================================
+
+interface ServerDailyTaskDef {
+  id: string;
+  order: number;
+  title: string;
+  time_slot: string;
+  duration_minutes: number;
+  category: string;
+  notes?: string;
+  icon?: string;
+}
+
+interface ServerDailyCompletion {
+  id: string;
+  user_id: string;
+  task_id: string;
+  date: string; // YYYY-MM-DD
+  completed: boolean;
+  completed_at?: string;
+}
+
+// Permanent recurring tasks database (mutable in memory, defaults to the 10 tasks)
+let DB_DAILY_TASKS: ServerDailyTaskDef[] = [
+  { id: 'dt_1', order: 1, title: 'Wake-Up', time_slot: '5:00 - 5:30', duration_minutes: 30, category: 'Morning Routine & Fitness', notes: 'Early morning wake-up and hydration (5:00 - 5:30)', icon: 'Sun' },
+  { id: 'dt_2', order: 2, title: "Qur'an Reading", time_slot: '15mins', duration_minutes: 15, category: "Spiritual & Qur'an", notes: "Daily Qur'an recitation and spiritual focus (15 mins)", icon: 'BookOpen' },
+  { id: 'dt_3', order: 3, title: 'Walking', time_slot: '1-1/2 hr', duration_minutes: 90, category: 'Morning Routine & Fitness', notes: 'Morning walking exercise and fresh air (1-1/2 hr)', icon: 'Activity' },
+  { id: 'dt_4', order: 4, title: 'Rgular-class', time_slot: '10:30 - 1:31', duration_minutes: 181, category: 'Core Academic Classes', notes: 'University & department regular lecture blocks (10:30 - 1:31)', icon: 'GraduationCap' },
+  { id: 'dt_5', order: 5, title: 'ML', time_slot: '1hr/30mins', duration_minutes: 90, category: 'Machine Learning (ML)', notes: 'Machine Learning model architecture & concepts (1hr/30mins)', icon: 'Cpu' },
+  { id: 'dt_6', order: 6, title: 'Data Science Video', time_slot: '15-30mins', duration_minutes: 30, category: 'Data Science (DS)', notes: 'Data Science technical lecture or conceptual video (15-30mins)', icon: 'Video' },
+  { id: 'dt_7', order: 7, title: 'PytonPractice', time_slot: '2-3hr', duration_minutes: 150, category: 'Python Programming', notes: 'Hands-on Python coding exercises & scripts (2-3hr)', icon: 'Code' },
+  { id: 'dt_8', order: 8, title: 'SQL', time_slot: '30mins', duration_minutes: 30, category: 'SQL & Databases', notes: 'Relational queries, schema design & practice (30mins)', icon: 'Database' },
+  { id: 'dt_9', order: 9, title: 'Communication', time_slot: '30min', duration_minutes: 30, category: 'Communication Skills', notes: 'Verbal, professional & presentation skills development (30min)', icon: 'MessageSquare' },
+  { id: 'dt_10', order: 10, title: 'DSA', time_slot: '30mins', duration_minutes: 30, category: 'DSA & Problem Solving', notes: 'Data Structures and Algorithms LeetCode / problem solving (30mins)', icon: 'Layers' },
+];
+
+const DEFAULT_DAILY_TASKS_BACKUP: ServerDailyTaskDef[] = JSON.parse(JSON.stringify(DB_DAILY_TASKS));
+
+// Historical completion store (pre-populated with participation records from 30-08-2026 only)
+let DB_DAILY_COMPLETIONS: ServerDailyCompletion[] = [
+  // 30-08-2026 (Day before yesterday: 6/10 tasks completed)
+  { id: 'dtc_3008_1', user_id: 'usr_1', task_id: 'dt_1', date: '2026-08-30', completed: true, completed_at: '2026-08-30T05:30:00Z' },
+  { id: 'dtc_3008_2', user_id: 'usr_1', task_id: 'dt_2', date: '2026-08-30', completed: true, completed_at: '2026-08-30T05:45:00Z' },
+  { id: 'dtc_3008_3', user_id: 'usr_1', task_id: 'dt_3', date: '2026-08-30', completed: true, completed_at: '2026-08-30T07:15:00Z' },
+  { id: 'dtc_3008_4', user_id: 'usr_1', task_id: 'dt_4', date: '2026-08-30', completed: true, completed_at: '2026-08-30T13:30:00Z' },
+  { id: 'dtc_3008_6', user_id: 'usr_1', task_id: 'dt_6', date: '2026-08-30', completed: true, completed_at: '2026-08-30T19:00:00Z' },
+  { id: 'dtc_3008_7', user_id: 'usr_1', task_id: 'dt_7', date: '2026-08-30', completed: true, completed_at: '2026-08-30T22:30:00Z' },
+
+  // 31-08-2026 (Row 1 / Yesterday: 5/10 completed)
+  { id: 'dtc_3108_1', user_id: 'usr_1', task_id: 'dt_1', date: '2026-08-31', completed: true, completed_at: '2026-08-31T05:25:00Z' },
+  { id: 'dtc_3108_2', user_id: 'usr_1', task_id: 'dt_2', date: '2026-08-31', completed: true, completed_at: '2026-08-31T05:42:00Z' },
+  { id: 'dtc_3108_3', user_id: 'usr_1', task_id: 'dt_3', date: '2026-08-31', completed: true, completed_at: '2026-08-31T07:10:00Z' },
+  { id: 'dtc_3108_4', user_id: 'usr_1', task_id: 'dt_4', date: '2026-08-31', completed: true, completed_at: '2026-08-31T13:30:00Z' },
+  { id: 'dtc_3108_7', user_id: 'usr_1', task_id: 'dt_7', date: '2026-08-31', completed: true, completed_at: '2026-08-31T22:30:00Z' },
+
+  // 01-09-2026 (Row 2 / Today: Qur'an done)
+  { id: 'dtc_0109_2', user_id: 'usr_1', task_id: 'dt_2', date: '2026-09-01', completed: true, completed_at: '2026-09-01T05:40:00Z' },
+];
+
+// Persistent multi-user database storage for Cloud Run & Cross-Device execution
+const STORAGE_DIR = process.env.DATA_DIR || path.join(process.cwd(), '.data');
+const STORAGE_FILE = path.join(STORAGE_DIR, 'timeforge_db.json');
+
+export interface ServerUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'user' | 'developer';
+  password?: string;
+  theme_pref?: string;
+  streak_count?: number;
+  longest_streak?: number;
+  xp?: number;
+  level?: number;
+  avatar?: string;
+  department?: string;
+  last_active_date?: string;
+  last_streak_date?: string;
+  created_at?: string;
+}
+
+let DB_USERS: ServerUser[] = [
+  {
+    id: 'usr_1',
+    name: 'Alex Rivera',
+    email: 'alex.rivera@university.edu',
+    password: 'password123',
+    role: 'user',
+    streak_count: 0,
+    longest_streak: 5,
+    xp: 240,
+    level: 2,
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    department: 'Computer Science & Engineering',
+    created_at: '2026-08-20',
+  },
+  {
+    id: 'usr_admin',
+    name: 'Institutional Admin',
+    email: '218r1a0543@gmail.com',
+    password: 'adminpassword',
+    role: 'admin',
+    streak_count: 0,
+    longest_streak: 12,
+    xp: 950,
+    level: 5,
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+    department: 'Academic Operations & Governance',
+    created_at: '2026-08-01',
+  },
+];
+
+let USER_TASK_DEFS: Record<string, ServerDailyTaskDef[]> = {};
+let USER_STREAKS: Record<string, number> = {};
+
+function initDataPersistence() {
+  try {
+    if (!fs.existsSync(STORAGE_DIR)) {
+      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    }
+    // Check for both timeforge_db.json and legacy timeforge_state.json
+    const targetFile = fs.existsSync(STORAGE_FILE)
+      ? STORAGE_FILE
+      : path.join(STORAGE_DIR, 'timeforge_state.json');
+
+    if (fs.existsSync(targetFile)) {
+      const raw = fs.readFileSync(targetFile, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.tasks) && data.tasks.length > 0) {
+        DB_DAILY_TASKS = data.tasks;
+      }
+      if (Array.isArray(data.completions)) {
+        DB_DAILY_COMPLETIONS = data.completions;
+      }
+      if (Array.isArray(data.users) && data.users.length > 0) {
+        DB_USERS = data.users;
+      }
+      if (data.user_tasks && typeof data.user_tasks === 'object') {
+        USER_TASK_DEFS = data.user_tasks;
+      }
+      if (data.streaks && typeof data.streaks === 'object') {
+        USER_STREAKS = data.streaks;
+      }
+      console.log(`[Storage] Restored ${DB_DAILY_TASKS.length} tasks, ${DB_DAILY_COMPLETIONS.length} completions, and ${DB_USERS.length} users from disk.`);
+    }
+  } catch (err) {
+    console.warn('[Storage] Error initializing local persistence:', err);
+  }
+}
+
+function persistDataToDisk() {
+  try {
+    if (!fs.existsSync(STORAGE_DIR)) {
+      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    }
+    const payload = {
+      tasks: DB_DAILY_TASKS,
+      completions: DB_DAILY_COMPLETIONS,
+      users: DB_USERS,
+      user_tasks: USER_TASK_DEFS,
+      streaks: USER_STREAKS,
+    };
+    fs.writeFileSync(STORAGE_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[Storage] Error persisting to disk:', err);
+  }
+}
+
+initDataPersistence();
+
+function getUserTaskDefinitions(userId: string): ServerDailyTaskDef[] {
+  if (USER_TASK_DEFS[userId] && USER_TASK_DEFS[userId].length > 0) {
+    return USER_TASK_DEFS[userId];
+  }
+  return DB_DAILY_TASKS;
+}
+
+function getDailyTasksWithStatus(userId: string, dateStr: string) {
+  const defs = getUserTaskDefinitions(userId);
+  return defs.map((def) => {
+    const comp = DB_DAILY_COMPLETIONS.find(
+      (c) => (c.user_id === userId || !c.user_id) && c.task_id === def.id && c.date === dateStr
+    );
+    return {
+      ...def,
+      completed: comp ? comp.completed : false,
+      completed_at: comp ? comp.completed_at : undefined,
+    };
+  });
+}
+
+function calculateProgress(tasksWithStatus: { completed: boolean }[]) {
+  const total = tasksWithStatus.length;
+  const completed = tasksWithStatus.filter((t) => t.completed).length;
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  return { total, completed, percentage };
+}
+
+// Authoritative Unified Streak Calculation:
+// - If developer/admin manually modified streak, that value is authoritative.
+// - Starts from 0 for new users or when yesterday was missed (< 100% or 0%).
+// - 100% completion on a day = streak continues/increments.
+// - Less than 100% (including 0%) on a day = streak resets to 0 starting the next day.
+function calculateUserStreak(userId: string): { streak: number; isTodayCompleted: boolean } {
+  if (USER_STREAKS[userId] !== undefined) {
+    return { streak: USER_STREAKS[userId], isTodayCompleted: false };
+  }
+
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  const getDateStr = (daysAgo: number) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - daysAgo);
+    return d.toISOString().split('T')[0];
+  };
+
+  const isDate100Percent = (dateStr: string) => {
+    const defs = getUserTaskDefinitions(userId);
+    if (defs.length === 0) return false;
+    const tasks = getDailyTasksWithStatus(userId, dateStr);
+    const completedCount = tasks.filter((t) => t.completed).length;
+    return completedCount === defs.length;
+  };
+
+  const todayCompleted = isDate100Percent(todayStr);
+  const yesterdayStr = getDateStr(1);
+  const yesterdayCompleted = isDate100Percent(yesterdayStr);
+
+  if (todayCompleted) {
+    let streak = 1;
+    let daysAgo = 1;
+    while (isDate100Percent(getDateStr(daysAgo))) {
+      streak++;
+      daysAgo++;
+    }
+    return { streak, isTodayCompleted: true };
+  }
+
+  // Today is not completed yet:
+  // If yesterday was 100% complete, yesterday's earned streak holds.
+  // BUT if yesterday was MISSED (<100% or 0%), the streak is strictly 0!
+  if (yesterdayCompleted) {
+    let streak = 1;
+    let daysAgo = 2;
+    while (isDate100Percent(getDateStr(daysAgo))) {
+      streak++;
+      daysAgo++;
+    }
+    return { streak, isTodayCompleted: false };
+  }
+
+  // Yesterday was missed (<100% or 0%) -> streak is strictly 0!
+  return { streak: 0, isTodayCompleted: false };
+}
+
+// Handler functions for both /daily-tasks and /api/daily-tasks
+const handleGetDailyTasks = (req: express.Request, res: express.Response) => {
+  const userId = (req.query.user_id as string) || 'usr_1';
+  const dateStr = (req.query.date as string) || new Date().toISOString().split('T')[0];
+
+  const defs = getUserTaskDefinitions(userId);
+  const tasksWithStatus = getDailyTasksWithStatus(userId, dateStr);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(userId);
+  const actualCompletions = DB_DAILY_COMPLETIONS.filter(
+    (c) => (c.user_id === userId || !c.user_id) && c.date === dateStr
+  );
+
+  res.json({
+    success: true,
+    date: dateStr,
+    user_id: userId,
+    definitions: defs,
+    tasks: tasksWithStatus,
+    completions: actualCompletions,
+    streak: streakInfo.streak,
+    is_streak_active: streakInfo.isTodayCompleted,
+    progress: {
+      date: dateStr,
+      ...progress,
+    },
+  });
+};
+
+const handleCompleteDailyTask = (req: express.Request, res: express.Response) => {
+  const taskId = req.params.task_id;
+  const userId = req.body.user_id || (req.query.user_id as string) || 'usr_1';
+  const dateStr = req.body.date || (req.query.date as string) || new Date().toISOString().split('T')[0];
+
+  let record = DB_DAILY_COMPLETIONS.find(
+    (c) => (c.user_id === userId || !c.user_id) && c.task_id === taskId && c.date === dateStr
+  );
+
+  if (record) {
+    record.completed = true;
+    record.completed_at = new Date().toISOString();
+  } else {
+    record = {
+      id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      user_id: userId,
+      task_id: taskId,
+      date: dateStr,
+      completed: true,
+      completed_at: new Date().toISOString(),
+    };
+    DB_DAILY_COMPLETIONS.push(record);
+  }
+  persistDataToDisk();
+
+  const tasksWithStatus = getDailyTasksWithStatus(userId, dateStr);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(userId);
+
+  res.json({
+    success: true,
+    message: 'Daily task marked as completed',
+    task_id: taskId,
+    date: dateStr,
+    completed: true,
+    streak: streakInfo.streak,
+    progress: {
+      date: dateStr,
+      ...progress,
+    },
+    tasks: tasksWithStatus,
+  });
+};
+
+const handleUncompleteDailyTask = (req: express.Request, res: express.Response) => {
+  const taskId = req.params.task_id;
+  const userId = req.body.user_id || (req.query.user_id as string) || 'usr_1';
+  const dateStr = req.body.date || (req.query.date as string) || new Date().toISOString().split('T')[0];
+
+  let record = DB_DAILY_COMPLETIONS.find(
+    (c) => (c.user_id === userId || !c.user_id) && c.task_id === taskId && c.date === dateStr
+  );
+
+  if (record) {
+    record.completed = false;
+    record.completed_at = undefined;
+  } else {
+    record = {
+      id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      user_id: userId,
+      task_id: taskId,
+      date: dateStr,
+      completed: false,
+    };
+    DB_DAILY_COMPLETIONS.push(record);
+  }
+  persistDataToDisk();
+
+  const tasksWithStatus = getDailyTasksWithStatus(userId, dateStr);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(userId);
+
+  res.json({
+    success: true,
+    message: 'Daily task marked as pending/uncompleted',
+    task_id: taskId,
+    date: dateStr,
+    completed: false,
+    streak: streakInfo.streak,
+    progress: {
+      date: dateStr,
+      ...progress,
+    },
+    tasks: tasksWithStatus,
+  });
+};
+
+const handleToggleDailyTask = (req: express.Request, res: express.Response) => {
+  const taskId = req.params.task_id;
+  const userId = req.body.user_id || (req.query.user_id as string) || 'usr_1';
+  const dateStr = req.body.date || (req.query.date as string) || new Date().toISOString().split('T')[0];
+
+  let record = DB_DAILY_COMPLETIONS.find(
+    (c) => (c.user_id === userId || !c.user_id) && c.task_id === taskId && c.date === dateStr
+  );
+
+  if (record) {
+    record.completed = !record.completed;
+    record.completed_at = record.completed ? new Date().toISOString() : undefined;
+  } else {
+    record = {
+      id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      user_id: userId,
+      task_id: taskId,
+      date: dateStr,
+      completed: true,
+      completed_at: new Date().toISOString(),
+    };
+    DB_DAILY_COMPLETIONS.push(record);
+  }
+  persistDataToDisk();
+
+  const tasksWithStatus = getDailyTasksWithStatus(userId, dateStr);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(userId);
+
+  res.json({
+    success: true,
+    task_id: taskId,
+    date: dateStr,
+    completed: record.completed,
+    streak: streakInfo.streak,
+    progress: {
+      date: dateStr,
+      ...progress,
+    },
+    tasks: tasksWithStatus,
+  });
+};
+
+const handleGetDailyProgress = (req: express.Request, res: express.Response) => {
+  const userId = (req.query.user_id as string) || 'usr_1';
+  const dateStr = (req.query.date as string) || new Date().toISOString().split('T')[0];
+
+  const tasksWithStatus = getDailyTasksWithStatus(userId, dateStr);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(userId);
+
+  res.json({
+    success: true,
+    date: dateStr,
+    streak: streakInfo.streak,
+    ...progress,
+  });
+};
+
+const handleGetDailyHistory = (req: express.Request, res: express.Response) => {
+  const userId = (req.query.user_id as string) || 'usr_1';
+  const defs = getUserTaskDefinitions(userId);
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // Provide at least the past 30 days plus any older recorded activity
+  const defaultPastDays = 30;
+  const earliestDateObj = new Date(today);
+  earliestDateObj.setDate(earliestDateObj.getDate() - defaultPastDays);
+  let minDateStr = earliestDateObj.toISOString().split('T')[0];
+
+  // If user has completions older than 30 days, extend window
+  DB_DAILY_COMPLETIONS.filter((c) => (c.user_id === userId || !c.user_id) && c.date).forEach((c) => {
+    if (c.date < minDateStr) {
+      minDateStr = c.date;
+    }
+  });
+
+  // Generate continuous list of all calendar days from today down to minDateStr (newest first)
+  const allDates: string[] = [];
+  const curr = new Date(today);
+  const minDate = new Date(minDateStr);
+  while (curr >= minDate) {
+    allDates.push(curr.toISOString().split('T')[0]);
+    curr.setDate(curr.getDate() - 1);
+  }
+
+  const history = allDates.map((dStr) => {
+    const taskCompletions: Record<string, boolean | null> = {};
+    let compCount = 0;
+
+    defs.forEach((def) => {
+      const comp = DB_DAILY_COMPLETIONS.find(
+        (c) => (c.user_id === userId || !c.user_id) && c.task_id === def.id && c.date === dStr
+      );
+      if (comp && comp.completed === true) {
+        taskCompletions[def.id] = true;
+        compCount++;
+      } else if (comp && comp.completed === false) {
+        taskCompletions[def.id] = false;
+      } else {
+        taskCompletions[def.id] = null; // No record exists (unattempted/missed)
+      }
+    });
+
+    const [y, m, d] = dStr.split('-');
+    const displayDate = `${d}-${m}-${y}`;
+    const total = defs.length;
+    const percentage = total > 0 ? Math.round((compCount / total) * 100) : 0;
+
+    return {
+      date: dStr,
+      display_date: displayDate,
+      total,
+      completed: compCount,
+      percentage,
+      task_completions: taskCompletions,
+    };
+  });
+
+  const streakInfo = calculateUserStreak(userId);
+
+  res.json({
+    success: true,
+    user_id: userId,
+    definitions: defs,
+    streak: streakInfo.streak,
+    history,
+  });
+};
+
+// Direct cell toggle in Spreadsheet History Matrix supporting tri-state (true, false, null)
+const handleToggleHistoryCell = (req: express.Request, res: express.Response) => {
+  const { date, task_id, user_id = 'usr_1', completed, action } = req.body;
+  if (!date || !task_id) {
+    return res.status(400).json({ error: 'Date and task_id are required' });
+  }
+
+  const recordIndex = DB_DAILY_COMPLETIONS.findIndex(
+    (c) => (c.user_id === user_id || !c.user_id) && c.task_id === task_id && c.date === date
+  );
+
+  let newStatus: boolean | null = null;
+
+  if (action === 'clear' || completed === null) {
+    // Clear record: remove completely so it shows as 'no record' (—)
+    if (recordIndex !== -1) {
+      DB_DAILY_COMPLETIONS.splice(recordIndex, 1);
+    }
+    newStatus = null;
+  } else if (completed !== undefined) {
+    // Explicitly set boolean
+    newStatus = Boolean(completed);
+    if (recordIndex !== -1) {
+      DB_DAILY_COMPLETIONS[recordIndex].completed = newStatus;
+      DB_DAILY_COMPLETIONS[recordIndex].completed_at = newStatus ? new Date().toISOString() : undefined;
+    } else {
+      DB_DAILY_COMPLETIONS.push({
+        id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        user_id,
+        task_id,
+        date,
+        completed: newStatus,
+        completed_at: newStatus ? new Date().toISOString() : undefined,
+      });
+    }
+  } else {
+    // Tri-state toggle cycle:
+    // No record (null) -> completed (true)
+    // Completed (true) -> not completed (false)
+    // Not completed (false) -> no record (null)
+    if (recordIndex === -1) {
+      newStatus = true;
+      DB_DAILY_COMPLETIONS.push({
+        id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        user_id,
+        task_id,
+        date,
+        completed: true,
+        completed_at: new Date().toISOString(),
+      });
+    } else if (DB_DAILY_COMPLETIONS[recordIndex].completed) {
+      newStatus = false;
+      DB_DAILY_COMPLETIONS[recordIndex].completed = false;
+      DB_DAILY_COMPLETIONS[recordIndex].completed_at = undefined;
+    } else {
+      newStatus = null;
+      DB_DAILY_COMPLETIONS.splice(recordIndex, 1);
+    }
+  }
+
+  const tasksWithStatus = getDailyTasksWithStatus(user_id, date);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(user_id);
+  persistDataToDisk();
+
+  res.json({
+    success: true,
+    date,
+    task_id,
+    completed: newStatus,
+    streak: streakInfo.streak,
+    progress: {
+      date,
+      ...progress,
+    },
+    tasks: tasksWithStatus,
+  });
+};
+
+const handleBatchResetDate = (req: express.Request, res: express.Response) => {
+  const { date, user_id = 'usr_1' } = req.body;
+  if (!date) {
+    return res.status(400).json({ error: 'Date is required' });
+  }
+
+  for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
+    const c = DB_DAILY_COMPLETIONS[i];
+    if ((c.user_id === user_id || !c.user_id) && c.date === date) {
+      DB_DAILY_COMPLETIONS.splice(i, 1);
+    }
+  }
+
+  const tasksWithStatus = getDailyTasksWithStatus(user_id, date);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(user_id);
+  persistDataToDisk();
+
+  res.json({
+    success: true,
+    date,
+    streak: streakInfo.streak,
+    progress,
+    tasks: tasksWithStatus,
+  });
+};
+
+const handleBatchUpdateDate = (req: express.Request, res: express.Response) => {
+  const { date, user_id = 'usr_1', completions = {} } = req.body;
+  if (!date) {
+    return res.status(400).json({ error: 'Date is required' });
+  }
+
+  // Update or insert completions for this date
+  Object.keys(completions).forEach((taskId) => {
+    const isCompleted = Boolean(completions[taskId]);
+    let record = DB_DAILY_COMPLETIONS.find(
+      (c) => (c.user_id === user_id || !c.user_id) && c.task_id === taskId && c.date === date
+    );
+    if (record) {
+      record.completed = isCompleted;
+      record.completed_at = isCompleted ? new Date().toISOString() : undefined;
+    } else {
+      DB_DAILY_COMPLETIONS.push({
+        id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        user_id,
+        task_id: taskId,
+        date,
+        completed: isCompleted,
+        completed_at: isCompleted ? new Date().toISOString() : undefined,
+      });
+    }
+  });
+
+  const tasksWithStatus = getDailyTasksWithStatus(user_id, date);
+  const progress = calculateProgress(tasksWithStatus);
+  const streakInfo = calculateUserStreak(user_id);
+  persistDataToDisk();
+
+  res.json({
+    success: true,
+    date,
+    streak: streakInfo.streak,
+    progress,
+    tasks: tasksWithStatus,
+  });
+};
+
+// Task Definition CRUD Handlers (For Admin / User Customization)
+const handleGetTaskDefinitions = (req: express.Request, res: express.Response) => {
+  res.json({
+    success: true,
+    definitions: DB_DAILY_TASKS,
+  });
+};
+
+const handleCreateTaskDefinition = (req: express.Request, res: express.Response) => {
+  const { title, time_slot = '30mins', duration_minutes = 30, category = 'General', notes = '', icon = 'CheckCircle2' } = req.body;
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'Task title is required' });
+  }
+
+  const newId = `dt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const nextOrder = DB_DAILY_TASKS.length > 0 ? Math.max(...DB_DAILY_TASKS.map((t) => t.order)) + 1 : 1;
+
+  const newDef: ServerDailyTaskDef = {
+    id: newId,
+    order: nextOrder,
+    title: title.trim(),
+    time_slot: time_slot.trim(),
+    duration_minutes: Number(duration_minutes) || 30,
+    category: category.trim(),
+    notes: notes ? notes.trim() : undefined,
+    icon: icon || 'CheckCircle2',
+  };
+
+  DB_DAILY_TASKS.push(newDef);
+  persistDataToDisk();
+
+  res.json({
+    success: true,
+    message: 'Daily task added successfully',
+    task: newDef,
+    definitions: DB_DAILY_TASKS,
+  });
+};
+
+const handleUpdateTaskDefinition = (req: express.Request, res: express.Response) => {
+  const taskId = req.params.task_id;
+  const { title, time_slot, duration_minutes, category, notes, icon, order } = req.body;
+
+  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId);
+  if (taskIndex === -1) {
+    return res.status(404).json({ error: 'Daily task definition not found' });
+  }
+
+  const existing = DB_DAILY_TASKS[taskIndex];
+  DB_DAILY_TASKS[taskIndex] = {
+    ...existing,
+    title: title !== undefined ? title.trim() : existing.title,
+    time_slot: time_slot !== undefined ? time_slot.trim() : existing.time_slot,
+    duration_minutes: duration_minutes !== undefined ? Number(duration_minutes) : existing.duration_minutes,
+    category: category !== undefined ? category.trim() : existing.category,
+    notes: notes !== undefined ? notes.trim() : existing.notes,
+    icon: icon !== undefined ? icon : existing.icon,
+    order: order !== undefined ? Number(order) : existing.order,
+  };
+  persistDataToDisk();
+
+  res.json({
+    success: true,
+    message: 'Daily task updated successfully',
+    task: DB_DAILY_TASKS[taskIndex],
+    definitions: DB_DAILY_TASKS,
+  });
+};
+
+const handleDeleteTaskDefinition = (req: express.Request, res: express.Response) => {
+  const taskId = req.params.task_id;
+  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId);
+  if (taskIndex === -1) {
+    return res.status(404).json({ error: 'Daily task definition not found' });
+  }
+
+  const removed = DB_DAILY_TASKS.splice(taskIndex, 1)[0];
+
+  // Remove corresponding completion logs
+  for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
+    if (DB_DAILY_COMPLETIONS[i].task_id === taskId) {
+      DB_DAILY_COMPLETIONS.splice(i, 1);
+    }
+  }
+  persistDataToDisk();
+
+  res.json({
+    success: true,
+    message: `Daily task "${removed.title}" deleted successfully`,
+    definitions: DB_DAILY_TASKS,
+  });
+};
+
+const handleResetTaskDefinitions = (req: express.Request, res: express.Response) => {
+  DB_DAILY_TASKS = JSON.parse(JSON.stringify(DEFAULT_DAILY_TASKS_BACKUP));
+  persistDataToDisk();
+  res.json({
+    success: true,
+    message: 'Reset daily tasks to original 10 routine items',
+    definitions: DB_DAILY_TASKS,
+  });
+};
+
+// Register routes on both `/daily-tasks` and `/api/daily-tasks`
+app.get('/daily-tasks', handleGetDailyTasks);
+app.get('/api/daily-tasks', handleGetDailyTasks);
+
+app.get('/daily-tasks/definitions', handleGetTaskDefinitions);
+app.get('/api/daily-tasks/definitions', handleGetTaskDefinitions);
+
+app.post('/daily-tasks/definitions', handleCreateTaskDefinition);
+app.post('/api/daily-tasks/definitions', handleCreateTaskDefinition);
+
+app.put('/daily-tasks/definitions/:task_id', handleUpdateTaskDefinition);
+app.put('/api/daily-tasks/definitions/:task_id', handleUpdateTaskDefinition);
+
+app.delete('/daily-tasks/definitions/:task_id', handleDeleteTaskDefinition);
+app.delete('/api/daily-tasks/definitions/:task_id', handleDeleteTaskDefinition);
+
+app.post('/daily-tasks/definitions/reset-defaults', handleResetTaskDefinitions);
+app.post('/api/daily-tasks/definitions/reset-defaults', handleResetTaskDefinitions);
+
+app.post('/daily-tasks/:task_id/complete', handleCompleteDailyTask);
+app.post('/api/daily-tasks/:task_id/complete', handleCompleteDailyTask);
+
+app.post('/daily-tasks/:task_id/uncomplete', handleUncompleteDailyTask);
+app.post('/api/daily-tasks/:task_id/uncomplete', handleUncompleteDailyTask);
+
+app.post('/daily-tasks/:task_id/toggle', handleToggleDailyTask);
+app.post('/api/daily-tasks/:task_id/toggle', handleToggleDailyTask);
+
+app.get('/daily-tasks/progress', handleGetDailyProgress);
+app.get('/api/daily-tasks/progress', handleGetDailyProgress);
+
+app.get('/daily-tasks/history', handleGetDailyHistory);
+app.get('/api/daily-tasks/history', handleGetDailyHistory);
+
+app.post('/daily-tasks/history/toggle-cell', handleToggleHistoryCell);
+app.post('/api/daily-tasks/history/toggle-cell', handleToggleHistoryCell);
+
+app.post('/daily-tasks/batch-update', handleBatchUpdateDate);
+app.post('/api/daily-tasks/batch-update', handleBatchUpdateDate);
+
+app.post('/daily-tasks/batch-reset', handleBatchResetDate);
+app.post('/api/daily-tasks/batch-reset', handleBatchResetDate);
+
+// ==========================================
+// USER SYNC, AUTH & STREAK OVERRIDE ENDPOINTS
+// ==========================================
+
+app.get('/api/users', (req, res) => {
+  const sanitized = DB_USERS.map(({ password, ...u }) => ({
+    ...u,
+    streak_count: USER_STREAKS[u.id] !== undefined ? USER_STREAKS[u.id] : calculateUserStreak(u.id).streak,
+  }));
+  res.json({ success: true, users: sanitized });
+});
+
+app.post('/api/users/sync', (req, res) => {
+  const { users } = req.body;
+  if (Array.isArray(users)) {
+    users.forEach((incomingUser: any) => {
+      const idx = DB_USERS.findIndex((u) => u.id === incomingUser.id || u.email === incomingUser.email);
+      if (idx !== -1) {
+        DB_USERS[idx] = { ...DB_USERS[idx], ...incomingUser };
+      } else {
+        DB_USERS.push(incomingUser);
+      }
+    });
+    persistDataToDisk();
+  }
+  const sanitized = DB_USERS.map(({ password, ...u }) => ({
+    ...u,
+    streak_count: USER_STREAKS[u.id] !== undefined ? USER_STREAKS[u.id] : calculateUserStreak(u.id).streak,
+  }));
+  res.json({ success: true, users: sanitized });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  const user = DB_USERS.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim());
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'User account not found' });
+  }
+  if (user.password && user.password !== password) {
+    return res.status(401).json({ success: false, error: 'Invalid password' });
+  }
+  const { password: _, ...cleanUser } = user;
+  const currentStreak = USER_STREAKS[cleanUser.id] !== undefined
+    ? USER_STREAKS[cleanUser.id]
+    : calculateUserStreak(cleanUser.id).streak;
+  res.json({ success: true, user: { ...cleanUser, streak_count: currentStreak } });
+});
+
+app.post('/api/auth/register', (req, res) => {
+  const { name, email, password, role = 'user', department, avatar } = req.body;
+  if (!email || !name) {
+    return res.status(400).json({ success: false, error: 'Name and email are required' });
+  }
+  const existing = DB_USERS.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
+  if (existing) {
+    return res.status(400).json({ success: false, error: 'An account with this email already exists' });
+  }
+  const newUser: ServerUser = {
+    id: `usr_${Date.now()}`,
+    name,
+    email: email.trim(),
+    password: password || 'defaultpass',
+    role: role || 'user',
+    department: department || 'Computer Science & Engineering',
+    avatar: avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    streak_count: 0,
+    longest_streak: 0,
+    xp: 0,
+    level: 1,
+    created_at: new Date().toISOString().split('T')[0],
+  };
+  DB_USERS.push(newUser);
+  persistDataToDisk();
+  const { password: _, ...cleanUser } = newUser;
+  res.json({ success: true, user: cleanUser });
+});
+
+app.post('/api/auth/update-profile', (req, res) => {
+  const { id, name, department, avatar, theme_pref } = req.body;
+  const idx = DB_USERS.findIndex((u) => u.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: 'User not found' });
+  }
+  if (name) DB_USERS[idx].name = name;
+  if (department) DB_USERS[idx].department = department;
+  if (avatar) DB_USERS[idx].avatar = avatar;
+  if (theme_pref) DB_USERS[idx].theme_pref = theme_pref;
+  persistDataToDisk();
+  const { password: _, ...cleanUser } = DB_USERS[idx];
+  res.json({ success: true, user: cleanUser });
+});
+
+app.post('/api/daily-tasks/streak/modify', (req, res) => {
+  const { user_id, streak, role = 'user' } = req.body;
+  if (role !== 'admin' && role !== 'developer') {
+    return res.status(403).json({ success: false, error: 'Developer or Admin permission required' });
+  }
+  const streakNum = Math.max(0, parseInt(streak, 10) || 0);
+  USER_STREAKS[user_id] = streakNum;
+  const user = DB_USERS.find((u) => u.id === user_id);
+  if (user) {
+    user.streak_count = streakNum;
+    user.longest_streak = Math.max(user.longest_streak || 0, streakNum);
+  }
+  persistDataToDisk();
+  res.json({ success: true, user_id, streak: streakNum });
+});
+
+// ==========================================
+// AI AGENT ENGINE (DEVELOPER & USER TIERS)
+// ==========================================
+
+function executeAgentToolCall(
+  toolName: string,
+  args: any,
+  callerUserId: string,
+  callerRole: string,
+  userMessage: string
+): { success: boolean; result?: any; error?: string; requires_confirmation?: any; actionSummary: string } {
+  const isDevOrAdmin = callerRole === 'admin' || callerRole === 'developer';
+  const effectiveUserId = isDevOrAdmin && args.user_id ? args.user_id : callerUserId;
+
+  // Role Gate: Non-developers cannot invoke admin_* tools
+  if (toolName.startsWith('admin_') && !isDevOrAdmin) {
+    return {
+      success: false,
+      error: 'Permission Denied: Only developers and administrators can perform this operation.',
+      actionSummary: `Attempted restricted developer action ${toolName}`,
+    };
+  }
+
+  // Cross-user Gate: Non-developers cannot access or manipulate other users' data
+  if (!isDevOrAdmin && args.user_id && args.user_id !== callerUserId) {
+    return {
+      success: false,
+      error: 'Permission Denied: You can only access or modify your own routine tasks.',
+      actionSummary: `Attempted unauthorized cross-user access`,
+    };
+  }
+
+  // Confirmation check for destructive actions
+  const isExplicitlyConfirmed =
+    args.confirm === true ||
+    /\b(confirm|yes|proceed|do it|sure)\b/i.test(userMessage);
+
+  if (toolName === 'delete_daily_task' && !isExplicitlyConfirmed) {
+    const task = DB_DAILY_TASKS.find((t) => t.id === args.task_id);
+    return {
+      success: false,
+      requires_confirmation: {
+        action: 'delete_daily_task',
+        payload: { task_id: args.task_id, confirm: true },
+        prompt: `Are you sure you want to permanently delete task "${task?.title || args.task_id}"?`,
+      },
+      actionSummary: `Requested confirmation to delete task ${task?.title || args.task_id}`,
+    };
+  }
+
+  if (toolName === 'batch_reset_day' && !isExplicitlyConfirmed) {
+    return {
+      success: false,
+      requires_confirmation: {
+        action: 'batch_reset_day',
+        payload: { date: args.date, confirm: true },
+        prompt: `Are you sure you want to reset all tasks for ${args.date}?`,
+      },
+      actionSummary: `Requested confirmation to reset all tasks for ${args.date}`,
+    };
+  }
+
+  if (toolName === 'admin_reset_all_defaults' && !isExplicitlyConfirmed) {
+    return {
+      success: false,
+      requires_confirmation: {
+        action: 'admin_reset_all_defaults',
+        payload: { confirm: true },
+        prompt: `Are you sure you want to restore all 10 default routine tasks? Any custom routine definitions will be overwritten.`,
+      },
+      actionSummary: `Requested confirmation to restore default tasks`,
+    };
+  }
+
+  // Execute tools
+  switch (toolName) {
+    case 'get_daily_tasks': {
+      const targetDate = args.date || new Date().toISOString().split('T')[0];
+      const tasks = getDailyTasksWithStatus(effectiveUserId, targetDate);
+      const progress = calculateProgress(tasks);
+      const streakInfo = calculateUserStreak(effectiveUserId);
+      return {
+        success: true,
+        result: { date: targetDate, tasks, progress, streak: streakInfo.streak },
+        actionSummary: `Retrieved routine tasks for ${targetDate} (${progress.completed}/${progress.total} completed)`,
+      };
+    }
+
+    case 'toggle_task_completion': {
+      const targetDate = args.date || new Date().toISOString().split('T')[0];
+      const taskId = args.task_id;
+      const isCompleted = Boolean(args.completed);
+      let record = DB_DAILY_COMPLETIONS.find(
+        (c) => (c.user_id === effectiveUserId || !c.user_id) && c.task_id === taskId && c.date === targetDate
+      );
+      if (record) {
+        record.completed = isCompleted;
+        record.completed_at = isCompleted ? new Date().toISOString() : undefined;
+      } else {
+        record = {
+          id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          user_id: effectiveUserId,
+          task_id: taskId,
+          date: targetDate,
+          completed: isCompleted,
+          completed_at: isCompleted ? new Date().toISOString() : undefined,
+        };
+        DB_DAILY_COMPLETIONS.push(record);
+      }
+      persistDataToDisk();
+      const streakInfo = calculateUserStreak(effectiveUserId);
+      const taskDef = DB_DAILY_TASKS.find((t) => t.id === taskId);
+      return {
+        success: true,
+        result: { task_id: taskId, date: targetDate, completed: isCompleted, streak: streakInfo.streak },
+        actionSummary: `Marked "${taskDef?.title || taskId}" as ${isCompleted ? 'completed' : 'incomplete'} for ${targetDate}`,
+      };
+    }
+
+    case 'add_daily_task': {
+      const newDef: ServerDailyTaskDef = {
+        id: `dt_${Date.now()}`,
+        order: DB_DAILY_TASKS.length + 1,
+        title: args.title || 'New Routine Task',
+        time_slot: args.time_slot || '30mins',
+        duration_minutes: Number(args.duration_minutes) || 30,
+        category: args.category || 'General Routine',
+        notes: args.notes || '',
+        icon: args.icon || 'CheckCircle2',
+      };
+      DB_DAILY_TASKS.push(newDef);
+      persistDataToDisk();
+      return {
+        success: true,
+        result: { task: newDef },
+        actionSummary: `Added new daily routine task: "${newDef.title}" (${newDef.time_slot})`,
+      };
+    }
+
+    case 'update_daily_task': {
+      const idx = DB_DAILY_TASKS.findIndex((t) => t.id === args.task_id);
+      if (idx === -1) {
+        return { success: false, error: 'Task not found', actionSummary: `Task ${args.task_id} not found` };
+      }
+      DB_DAILY_TASKS[idx] = {
+        ...DB_DAILY_TASKS[idx],
+        title: args.title !== undefined ? args.title : DB_DAILY_TASKS[idx].title,
+        time_slot: args.time_slot !== undefined ? args.time_slot : DB_DAILY_TASKS[idx].time_slot,
+        duration_minutes: args.duration_minutes !== undefined ? Number(args.duration_minutes) : DB_DAILY_TASKS[idx].duration_minutes,
+        category: args.category !== undefined ? args.category : DB_DAILY_TASKS[idx].category,
+        notes: args.notes !== undefined ? args.notes : DB_DAILY_TASKS[idx].notes,
+      };
+      persistDataToDisk();
+      return {
+        success: true,
+        result: { task: DB_DAILY_TASKS[idx] },
+        actionSummary: `Updated routine task "${DB_DAILY_TASKS[idx].title}"`,
+      };
+    }
+
+    case 'delete_daily_task': {
+      const idx = DB_DAILY_TASKS.findIndex((t) => t.id === args.task_id);
+      if (idx === -1) {
+        return { success: false, error: 'Task not found', actionSummary: `Task ${args.task_id} not found` };
+      }
+      const removed = DB_DAILY_TASKS.splice(idx, 1)[0];
+      for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
+        if (DB_DAILY_COMPLETIONS[i].task_id === args.task_id) {
+          DB_DAILY_COMPLETIONS.splice(i, 1);
+        }
+      }
+      persistDataToDisk();
+      return {
+        success: true,
+        result: { deleted_task_id: args.task_id, title: removed.title },
+        actionSummary: `Permanently deleted routine task "${removed.title}"`,
+      };
+    }
+
+    case 'batch_complete_day': {
+      const targetDate = args.date || new Date().toISOString().split('T')[0];
+      DB_DAILY_TASKS.forEach((def) => {
+        let rec = DB_DAILY_COMPLETIONS.find(
+          (c) => (c.user_id === effectiveUserId || !c.user_id) && c.task_id === def.id && c.date === targetDate
+        );
+        if (rec) {
+          rec.completed = true;
+          rec.completed_at = new Date().toISOString();
+        } else {
+          DB_DAILY_COMPLETIONS.push({
+            id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            user_id: effectiveUserId,
+            task_id: def.id,
+            date: targetDate,
+            completed: true,
+            completed_at: new Date().toISOString(),
+          });
+        }
+      });
+      persistDataToDisk();
+      const streakInfo = calculateUserStreak(effectiveUserId);
+      return {
+        success: true,
+        result: { date: targetDate, streak: streakInfo.streak },
+        actionSummary: `Marked all ${DB_DAILY_TASKS.length} tasks completed for ${targetDate}`,
+      };
+    }
+
+    case 'batch_reset_day': {
+      const targetDate = args.date || new Date().toISOString().split('T')[0];
+      for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
+        const c = DB_DAILY_COMPLETIONS[i];
+        if ((c.user_id === effectiveUserId || !c.user_id) && c.date === targetDate) {
+          DB_DAILY_COMPLETIONS.splice(i, 1);
+        }
+      }
+      persistDataToDisk();
+      const streakInfo = calculateUserStreak(effectiveUserId);
+      return {
+        success: true,
+        result: { date: targetDate, streak: streakInfo.streak },
+        actionSummary: `Reset all task completions for ${targetDate} to incomplete`,
+      };
+    }
+
+    case 'get_user_history_and_streak': {
+      const streakInfo = calculateUserStreak(effectiveUserId);
+      return {
+        success: true,
+        result: {
+          user_id: effectiveUserId,
+          streak: streakInfo.streak,
+          isTodayCompleted: streakInfo.isTodayCompleted,
+          totalTasks: DB_DAILY_TASKS.length,
+        },
+        actionSummary: `Checked streak status for ${effectiveUserId}: current streak is ${streakInfo.streak} days`,
+      };
+    }
+
+    case 'admin_modify_streak': {
+      const newStreak = Math.max(0, parseInt(args.new_streak, 10) || 0);
+      USER_STREAKS[effectiveUserId] = newStreak;
+      const todayStr = new Date().toISOString().split('T')[0];
+      const userObj = DB_USERS.find((u) => u.id === effectiveUserId);
+      if (userObj) {
+        userObj.streak_count = newStreak;
+        userObj.longest_streak = Math.max(userObj.longest_streak || 0, newStreak);
+        userObj.last_streak_date = newStreak > 0 ? todayStr : undefined;
+      }
+      persistDataToDisk();
+      return {
+        success: true,
+        result: { user_id: effectiveUserId, new_streak: newStreak },
+        actionSummary: `Developer Override: Streak updated to ${newStreak} days for ${userObj?.name || effectiveUserId}`,
+      };
+    }
+
+    case 'admin_update_any_user_completion': {
+      const { date, task_id, completed, user_id: targetUser } = args;
+      const isCompleted = Boolean(completed);
+      let record = DB_DAILY_COMPLETIONS.find(
+        (c) => c.user_id === targetUser && c.task_id === task_id && c.date === date
+      );
+      if (record) {
+        record.completed = isCompleted;
+        record.completed_at = isCompleted ? new Date().toISOString() : undefined;
+      } else {
+        DB_DAILY_COMPLETIONS.push({
+          id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          user_id: targetUser,
+          task_id,
+          date,
+          completed: isCompleted,
+          completed_at: isCompleted ? new Date().toISOString() : undefined,
+        });
+      }
+      persistDataToDisk();
+      return {
+        success: true,
+        result: { user_id: targetUser, task_id, date, completed: isCompleted },
+        actionSummary: `Admin: Set task ${task_id} on ${date} for user ${targetUser} to ${isCompleted ? 'done' : 'not done'}`,
+      };
+    }
+
+    case 'admin_list_users': {
+      const usersList = DB_USERS.map(({ password, ...u }) => ({
+        ...u,
+        streak_count: USER_STREAKS[u.id] !== undefined ? USER_STREAKS[u.id] : calculateUserStreak(u.id).streak,
+      }));
+      return {
+        success: true,
+        result: { users: usersList },
+        actionSummary: `Retrieved institutional users roster (${usersList.length} users)`,
+      };
+    }
+
+    case 'admin_reset_all_defaults': {
+      DB_DAILY_TASKS = JSON.parse(JSON.stringify(DEFAULT_DAILY_TASKS_BACKUP));
+      persistDataToDisk();
+      return {
+        success: true,
+        result: { tasks: DB_DAILY_TASKS },
+        actionSummary: `Reset all daily routine tasks to original 10 defaults`,
+      };
+    }
+
+    default:
+      return {
+        success: false,
+        error: `Unknown tool: ${toolName}`,
+        actionSummary: `Unrecognized action ${toolName}`,
+      };
+  }
+}
+
+app.post('/api/ai/agent-chat', async (req, res) => {
+  try {
+    const rawMsg = req.body.message || '';
+    const userId = req.body.userId || req.body.user_id || 'usr_1';
+    const role = (req.body.role || 'user').toLowerCase();
+    const isDevOrAdmin = role === 'admin' || role === 'developer';
+    const confirm = Boolean(req.body.confirm);
+    const confirmedAction = req.body.confirmed_action || req.body.pending_action;
+    const history = req.body.history || [];
+
+    const executedActions: any[] = [];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Helper to format unified response
+    const sendResponse = (replyText: string, actions: any[] = [], reqConfirm: any = null) => {
+      const streakInfo = calculateUserStreak(userId);
+      const toolResults = actions.map((a) => ({
+        tool: a.tool_name,
+        result: a.summary || (typeof a.data === 'string' ? a.data : JSON.stringify(a.data)),
+        error: a.status === 'failed' ? (typeof a.data === 'string' ? a.data : 'Execution failed') : undefined,
+      }));
+
+      return res.json({
+        success: true,
+        reply: replyText,
+        message: replyText,
+        toolResults,
+        actions_taken: actions,
+        requiresConfirmation: Boolean(reqConfirm),
+        requires_confirmation: reqConfirm,
+        pendingAction: reqConfirm?.payload || reqConfirm?.action || null,
+        pending_action: reqConfirm?.payload || reqConfirm?.action || null,
+        streak: streakInfo.streak,
+        tasks: DB_DAILY_TASKS,
+      });
+    };
+
+    // 1. Direct Execution if confirmation payload was supplied
+    if (confirm && confirmedAction) {
+      const actName = typeof confirmedAction === 'string' ? confirmedAction : (confirmedAction.action || confirmedAction.tool_name);
+      const payload = typeof confirmedAction === 'object' ? (confirmedAction.payload || confirmedAction) : {};
+      const toolRes = executeAgentToolCall(actName, { ...payload, confirm: true }, userId, role, 'confirm');
+      
+      const actItem = {
+        id: `act_${Date.now()}`,
+        tool_name: actName,
+        summary: toolRes.actionSummary,
+        status: toolRes.success ? 'success' : 'failed',
+        data: toolRes.result || toolRes.error,
+      };
+      executedActions.push(actItem);
+      return sendResponse(`✅ Action confirmed and completed: **${toolRes.actionSummary}**`, executedActions);
+    }
+
+    const trimmedMsg = rawMsg.trim();
+    const lowerMsg = trimmedMsg.toLowerCase();
+
+    // =========================================================================
+    // 2. ULTRA-FAST INTENT DETECTOR (< 5ms response time for direct commands)
+    // =========================================================================
+
+    // A) STREAK MODIFICATION (Developer Tier)
+    const streakMatch = lowerMsg.match(/(?:set|update|change|modify|make)\s+(?:my\s+|user\s+)?(?:streak|strike)\s+(?:count\s+)?(?:to\s+|is\s+)?(\d+)/i) ||
+                        lowerMsg.match(/(?:streak|strike)\s+(?:to|is|=)\s*(\d+)/i) ||
+                        lowerMsg.match(/^set streak to (\d+)/i);
+    const resetStreakMatch = lowerMsg.match(/reset\s+(?:my\s+)?(?:streak|strike)\s+(?:to\s+0)?/i);
+
+    if (streakMatch || resetStreakMatch) {
+      if (!isDevOrAdmin) {
+        return sendResponse('🔒 **Permission Denied**: Only developers and administrators can manually modify streaks. Complete 100% of your daily routine tasks to build your streak naturally!');
+      }
+      const newStreakVal = resetStreakMatch ? 0 : parseInt(streakMatch![1], 10);
+      const toolRes = executeAgentToolCall('admin_modify_streak', { user_id: userId, new_streak: newStreakVal }, userId, role, rawMsg);
+      const actItem = {
+        id: `act_${Date.now()}`,
+        tool_name: 'admin_modify_streak',
+        summary: toolRes.actionSummary,
+        status: toolRes.success ? 'success' : 'failed',
+        data: toolRes.result,
+      };
+      executedActions.push(actItem);
+      return sendResponse(`⚡ **Developer Override**: Streak count has been set to **${newStreakVal} days** for user \`${userId}\`. Your profile and flame badge have updated in real time.`, executedActions);
+    }
+
+    // B) QUERY STREAK (User & Developer Tier)
+    if (
+      lowerMsg.includes('how is my streak') ||
+      lowerMsg.includes('what is my streak') ||
+      lowerMsg.includes('check streak') ||
+      lowerMsg === 'my streak' ||
+      lowerMsg.includes('show my streak')
+    ) {
+      const streakInfo = calculateUserStreak(userId);
+      const todayTasks = getDailyTasksWithStatus(userId, todayStr);
+      const completedCount = todayTasks.filter((t) => t.completed).length;
+      const totalCount = todayTasks.length;
+      return sendResponse(
+        `🔥 **Your Current Streak is ${streakInfo.streak} day${streakInfo.streak === 1 ? '' : 's'}**.\n\n` +
+        `• **Today's Progress**: ${completedCount}/${totalCount} tasks completed (${Math.round((completedCount / (totalCount || 1)) * 100)}%)\n` +
+        `• **Status**: ${streakInfo.isTodayCompleted ? '🎉 100% finished for today! Your streak is secured.' : '⚡ Complete remaining routine items before midnight to maintain streak integrity.'}`
+      );
+    }
+
+    // C) BATCH COMPLETE DAY (e.g. "mark today 100%", "mark all tasks completed for today", "complete all")
+    if (
+      lowerMsg.includes('mark today 100%') ||
+      lowerMsg.includes('mark all tasks completed') ||
+      lowerMsg.includes('mark all tasks done') ||
+      lowerMsg.includes('mark all completed') ||
+      lowerMsg.includes('complete all tasks') ||
+      lowerMsg.includes('finish all tasks') ||
+      lowerMsg === 'complete today'
+    ) {
+      // Check if date specified
+      const dateMatch = trimmedMsg.match(/(\d{4}-\d{2}-\d{2})/);
+      const targetDate = dateMatch ? dateMatch[1] : todayStr;
+
+      const toolRes = executeAgentToolCall('batch_complete_day', { date: targetDate }, userId, role, rawMsg);
+      const actItem = {
+        id: `act_${Date.now()}`,
+        tool_name: 'batch_complete_day',
+        summary: toolRes.actionSummary,
+        status: toolRes.success ? 'success' : 'failed',
+        data: toolRes.result,
+      };
+      executedActions.push(actItem);
+      return sendResponse(`✨ **Success**: Marked all ${DB_DAILY_TASKS.length} routine tasks completed for **${targetDate}**! Today is now at 100% and your streak has been validated.`, executedActions);
+    }
+
+    // D) ADD DAILY TASK (Developer & User)
+    // Matches "add a new daily task called "X" for 45 mins with category "Y"" or "add task X 30m"
+    if (lowerMsg.startsWith('add task') || lowerMsg.startsWith('add daily task') || lowerMsg.includes('add a new daily task')) {
+      let title = '';
+      let duration = 30;
+      let category = 'General Routine';
+      let timeSlot = '30mins';
+
+      // Try quoted title
+      const quoted = trimmedMsg.match(/["']([^"']+)["']/);
+      if (quoted) {
+        title = quoted[1].trim();
+      }
+
+      // Try parsing duration
+      const durMatch = trimmedMsg.match(/(\d+)\s*(?:mins?|minutes?|m\b)/i);
+      if (durMatch) {
+        duration = parseInt(durMatch[1], 10);
+        timeSlot = `${duration}mins`;
+      }
+
+      // Try parsing category
+      const catMatch = trimmedMsg.match(/category\s+["']?([^"']+)["']?/i);
+      if (catMatch) {
+        category = catMatch[1].trim();
+      }
+
+      if (!title) {
+        // Extract title after "add [daily] task [called]"
+        const clean = trimmedMsg.replace(/^add\s+(?:a\s+new\s+)?(?:daily\s+)?task\s+(?:called\s+)?/i, '')
+                                .replace(/for\s+\d+\s*(?:mins?|minutes?)/i, '')
+                                .replace(/with\s+category\s+.*$/i, '')
+                                .trim();
+        title = clean || 'New Routine Habit';
+      }
+
+      const toolRes = executeAgentToolCall('add_daily_task', {
+        title,
+        time_slot: timeSlot,
+        duration_minutes: duration,
+        category,
+        notes: 'Added via TimeForge AI Agent',
+      }, userId, role, rawMsg);
+
+      const actItem = {
+        id: `act_${Date.now()}`,
+        tool_name: 'add_daily_task',
+        summary: toolRes.actionSummary,
+        status: toolRes.success ? 'success' : 'failed',
+        data: toolRes.result,
+      };
+      executedActions.push(actItem);
+      return sendResponse(`🎯 **Added Daily Task**: **"${title}"** (${timeSlot}, ${category}). This habit has been persisted to the daily schedule and matrix.`, executedActions);
+    }
+
+    // E) DELETE DAILY TASK (Developer Tier)
+    if (lowerMsg.startsWith('delete task') || lowerMsg.startsWith('remove task')) {
+      if (!isDevOrAdmin) {
+        return sendResponse('🔒 **Permission Denied**: Only developers can permanently delete routine task definitions.');
+      }
+      const rawTarget = trimmedMsg.replace(/^(?:delete|remove)\s+task\s+/i, '').trim();
+      // Find matching task by id or title
+      const matched = DB_DAILY_TASKS.find((t) => t.id === rawTarget || t.title.toLowerCase().includes(rawTarget.toLowerCase()));
+      if (!matched) {
+        return sendResponse(`⚠️ Could not find any task matching "${rawTarget}". Use "check routine status" to see existing tasks.`);
+      }
+
+      const toolRes = executeAgentToolCall('delete_daily_task', { task_id: matched.id, confirm }, userId, role, rawMsg);
+      if (toolRes.requires_confirmation) {
+        return sendResponse(
+          `⚠️ **Confirmation Required**: Are you sure you want to permanently delete routine task **"${matched.title}"**? All historical completion logs for this task will be cleared.`,
+          [],
+          toolRes.requires_confirmation
+        );
+      }
+
+      const actItem = {
+        id: `act_${Date.now()}`,
+        tool_name: 'delete_daily_task',
+        summary: toolRes.actionSummary,
+        status: toolRes.success ? 'success' : 'failed',
+        data: toolRes.result,
+      };
+      executedActions.push(actItem);
+      return sendResponse(`🗑️ **Deleted Task**: "${matched.title}" has been removed from daily tasks.`, executedActions);
+    }
+
+    // F) RESTORE / RESET DEFAULT TASKS (Developer Tier)
+    if (lowerMsg.includes('restore default tasks') || lowerMsg.includes('reset defaults') || lowerMsg.includes('reset to default 10 tasks')) {
+      if (!isDevOrAdmin) {
+        return sendResponse('🔒 **Permission Denied**: Only developers can reset routine definitions to default.');
+      }
+      const toolRes = executeAgentToolCall('admin_reset_all_defaults', { confirm }, userId, role, rawMsg);
+      if (toolRes.requires_confirmation) {
+        return sendResponse(
+          `⚠️ **Confirmation Required**: Are you sure you want to restore the original 10 default routine tasks? Any custom habits will be replaced.`,
+          [],
+          toolRes.requires_confirmation
+        );
+      }
+      const actItem = {
+        id: `act_${Date.now()}`,
+        tool_name: 'admin_reset_all_defaults',
+        summary: toolRes.actionSummary,
+        status: toolRes.success ? 'success' : 'failed',
+        data: toolRes.result,
+      };
+      executedActions.push(actItem);
+      return sendResponse(`🔄 **Restored Defaults**: All 10 standard daily routine habits have been restored.`, executedActions);
+    }
+
+    // G) BATCH RESET DAY
+    if (lowerMsg.includes('reset all tasks for today') || lowerMsg.includes('reset today') || lowerMsg.includes('batch reset')) {
+      const dateMatch = trimmedMsg.match(/(\d{4}-\d{2}-\d{2})/);
+      const targetDate = dateMatch ? dateMatch[1] : todayStr;
+
+      const toolRes = executeAgentToolCall('batch_reset_day', { date: targetDate, confirm }, userId, role, rawMsg);
+      if (toolRes.requires_confirmation) {
+        return sendResponse(
+          `⚠️ **Confirmation Required**: Are you sure you want to reset all completed tasks for **${targetDate}**?`,
+          [],
+          toolRes.requires_confirmation
+        );
+      }
+      const actItem = {
+        id: `act_${Date.now()}`,
+        tool_name: 'batch_reset_day',
+        summary: toolRes.actionSummary,
+        status: toolRes.success ? 'success' : 'failed',
+        data: toolRes.result,
+      };
+      executedActions.push(actItem);
+      return sendResponse(`🔄 **Reset Complete**: All tasks for **${targetDate}** have been reset to incomplete.`, executedActions);
+    }
+
+    // H) TOGGLE SPECIFIC TASK COMPLETION (e.g. "mark Quran done", "mark first task done")
+    if (lowerMsg.includes('mark') || lowerMsg.includes('toggle') || lowerMsg.includes('complete')) {
+      const todayTasks = getDailyTasksWithStatus(userId, todayStr);
+      let targetTask: any = null;
+
+      if (lowerMsg.includes('first task') || lowerMsg.includes('first pending')) {
+        targetTask = todayTasks.find((t) => !t.completed) || todayTasks[0];
+      } else {
+        // Find best matching task title
+        for (const t of todayTasks) {
+          const simplifiedTitle = t.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const simplifiedMsg = lowerMsg.replace(/[^a-z0-9]/g, '');
+          if (simplifiedMsg.includes(simplifiedTitle) || lowerMsg.includes(t.title.toLowerCase())) {
+            targetTask = t;
+            break;
+          }
+        }
+      }
+
+      if (targetTask) {
+        const isUncomplete = lowerMsg.includes('unmark') || lowerMsg.includes('incomplete') || lowerMsg.includes('undo');
+        const nextVal = !isUncomplete;
+        const toolRes = executeAgentToolCall('toggle_task_completion', { task_id: targetTask.id, date: todayStr, completed: nextVal }, userId, role, rawMsg);
+        const actItem = {
+          id: `act_${Date.now()}`,
+          tool_name: 'toggle_task_completion',
+          summary: toolRes.actionSummary,
+          status: toolRes.success ? 'success' : 'failed',
+          data: toolRes.result,
+        };
+        executedActions.push(actItem);
+        return sendResponse(`✅ **Task Updated**: Marked **"${targetTask.title}"** as ${nextVal ? 'completed' : 'incomplete'} for today.`, executedActions);
+      }
+    }
+
+    // I) ROUTINE STATUS / LIST ALL TASKS
+    if (
+      lowerMsg.includes('check routine status') ||
+      lowerMsg.includes('list all current daily tasks') ||
+      lowerMsg.includes('list all tasks') ||
+      lowerMsg.includes('show tasks') ||
+      lowerMsg.includes('routine status')
+    ) {
+      const tasksWithStatus = getDailyTasksWithStatus(userId, todayStr);
+      const completedCount = tasksWithStatus.filter((t) => t.completed).length;
+      const taskLines = tasksWithStatus.map((t, i) => `${t.completed ? '✅' : '⬜'} **${i + 1}. ${t.title}** (${t.time_slot}) - *${t.category}*`).join('\n');
+      return sendResponse(
+        `📋 **Daily Routine Status for ${todayStr}** (${completedCount}/${tasksWithStatus.length} completed):\n\n${taskLines}\n\n` +
+        `💡 You can tell me to mark tasks completed, add new habits, or adjust streaks anytime!`
+      );
+    }
+
+    // J) LIST ALL USERS (Developer Tier)
+    if (lowerMsg.includes('list users') || lowerMsg.includes('show all users') || lowerMsg.includes('user roster')) {
+      if (!isDevOrAdmin) {
+        return sendResponse('🔒 **Permission Denied**: Only developers can view user rosters.');
+      }
+      const toolRes = executeAgentToolCall('admin_list_users', {}, userId, role, rawMsg);
+      const userList = toolRes.result.users.map((u: any) => `• **${u.name}** (\`${u.email}\`) — Role: \`${u.role}\`, Streak: **${u.streak_count} days**`).join('\n');
+      return sendResponse(`👥 **TimeForge Registered Users (${toolRes.result.users.length})**:\n\n${userList}`);
+    }
+
+    // =========================================================================
+    // 3. GEMINI AI ENGINE (For conversational, motivational & advice prompts)
+    // =========================================================================
+    const ai = getAIClient();
+
+    if (!ai) {
+      // High quality fallback coaching responses
+      if (lowerMsg.includes('motivat') || lowerMsg.includes('inspire')) {
+        return sendResponse(`⚡ **Daily Motivation**: *"Small disciplines repeated with consistency every day lead to great achievements gained slowly over time."*\n\nYou have ${DB_DAILY_TASKS.length} deliberate routine items designed to anchor your mind and body. Attack your next 30-minute block with total immersion!`);
+      }
+      if (lowerMsg.includes('advice') || lowerMsg.includes('focus') || lowerMsg.includes('order')) {
+        return sendResponse(`🧠 **Routine Focus Strategy**:\n1. **Early Win**: Begin with your physical activation (Wake-up & Walking) to stimulate dopamine.\n2. **Deep Anchor**: Tackle core study or engineering blocks before midday while cognitive stamina is peaked.\n3. **Reflective Wind-down**: Close the loop in the evening with revision and schedule planning.`);
+      }
+      return sendResponse(`Hello! I am your **TimeForge AI Agent**. I have full administrative capabilities in Developer mode (modifying streaks, creating/deleting tasks, batch completing dates) and guided routine support in User mode. How can I assist your schedule today?`);
+    }
+
+    // Function declarations for Gemini tool calling
+    const functionDeclarations = [
+      {
+        name: 'get_daily_tasks',
+        description: 'Get daily routine tasks and their completion status for a specific date (defaults to today).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            date: { type: 'STRING', description: 'Date in YYYY-MM-DD format' },
+          },
+        },
+      },
+      {
+        name: 'toggle_task_completion',
+        description: 'Mark a daily routine task as completed or incomplete for a specific date.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            task_id: { type: 'STRING', description: 'ID of the task, e.g. dt_1, dt_2' },
+            date: { type: 'STRING', description: 'Date in YYYY-MM-DD format' },
+            completed: { type: 'BOOLEAN', description: 'True for completed, false for incomplete' },
+          },
+          required: ['task_id', 'date', 'completed'],
+        },
+      },
+      {
+        name: 'add_daily_task',
+        description: 'Add a new recurring daily routine task definition.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            title: { type: 'STRING', description: 'Task title e.g. Morning Workout' },
+            time_slot: { type: 'STRING', description: 'Time or duration e.g. 6:00 - 6:45 or 45mins' },
+            duration_minutes: { type: 'INTEGER', description: 'Duration in minutes' },
+            category: { type: 'STRING', description: 'Category name' },
+            notes: { type: 'STRING', description: 'Helpful notes or instructions' },
+          },
+          required: ['title', 'duration_minutes', 'category'],
+        },
+      },
+      {
+        name: 'update_daily_task',
+        description: 'Update an existing daily routine task definition.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            task_id: { type: 'STRING', description: 'ID of the task to update' },
+            title: { type: 'STRING' },
+            time_slot: { type: 'STRING' },
+            duration_minutes: { type: 'INTEGER' },
+            category: { type: 'STRING' },
+            notes: { type: 'STRING' },
+          },
+          required: ['task_id'],
+        },
+      },
+      {
+        name: 'delete_daily_task',
+        description: 'Delete a daily routine task definition. Destructive: requires confirmation.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            task_id: { type: 'STRING', description: 'ID of the task to delete' },
+            confirm: { type: 'BOOLEAN', description: 'True if user confirmed deletion' },
+          },
+          required: ['task_id'],
+        },
+      },
+      {
+        name: 'batch_complete_day',
+        description: 'Mark all daily tasks as completed for a given date.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            date: { type: 'STRING', description: 'Date in YYYY-MM-DD format' },
+          },
+          required: ['date'],
+        },
+      },
+      {
+        name: 'admin_modify_streak',
+        description: 'DEVELOPER/ADMIN ONLY: Manually modify or set the streak count for any user.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            user_id: { type: 'STRING', description: 'Target user ID' },
+            new_streak: { type: 'INTEGER', description: 'New streak integer value >= 0' },
+          },
+          required: ['user_id', 'new_streak'],
+        },
+      },
+    ];
+
+    const systemInstruction = `You are TimeForge AI Agent, an intelligent scheduling, routine management, and administrative automation assistant.
+User Role: "${role}" (${isDevOrAdmin ? 'DEVELOPER/ADMIN FULL SYSTEM ACCESS' : 'STANDARD USER ACCESS'}).
+Active User ID: "${userId}".
+Today's Date: "${todayStr}".
+
+CAPABILITIES:
+- If role is developer/admin: You can execute administrative tasks (admin_modify_streak, add_daily_task, update_daily_task, delete_daily_task, batch_complete_day).
+- If role is user: Provide focus advice, motivation, routine guidance, or toggle user tasks.
+- Keep replies concise, actionable, and structured with bold highlights and bullet points.`;
+
+    // Fast call to Gemini with a 4.5s timeout promise race
+    const geminiPromise = ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: rawMsg,
+      config: {
+        systemInstruction,
+        tools: [{ functionDeclarations: functionDeclarations as any }],
+      },
+    });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Gemini API timeout')), 4500)
+    );
+
+    const response: any = await Promise.race([geminiPromise, timeoutPromise]);
+    let finalMessage = response.text || '';
+    let requiresConfirmation: any = null;
+
+    if (response.functionCalls && response.functionCalls.length > 0) {
+      for (const call of response.functionCalls) {
+        const execRes = executeAgentToolCall(call.name, call.args, userId, role, rawMsg);
+        executedActions.push({
+          id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+          tool_name: call.name,
+          summary: execRes.actionSummary,
+          status: execRes.success ? 'success' : (execRes.requires_confirmation ? 'requires_confirmation' : 'failed'),
+          data: execRes.result || execRes.error,
+        });
+
+        if (execRes.requires_confirmation) {
+          requiresConfirmation = execRes.requires_confirmation;
+        }
+      }
+      // Combine action summaries directly — instantaneous, no slow second round trip!
+      if (!finalMessage) {
+        finalMessage = executedActions.map((a) => `• ${a.summary}`).join('\n');
+      }
+    }
+
+    if (!finalMessage) {
+      finalMessage = `Operation processed by TimeForge AI Agent for user ${userId}.`;
+    }
+
+    return sendResponse(finalMessage, executedActions, requiresConfirmation);
+
+  } catch (error: any) {
+    console.error('Agent chat error or timeout:', error);
+    // Instantaneous graceful fallback
+    const rawMsg = req.body?.message || '';
+    const userId = req.body?.userId || req.body?.user_id || 'usr_1';
+    const streakInfo = calculateUserStreak(userId);
+    const todayTasks = getDailyTasksWithStatus(userId, new Date().toISOString().split('T')[0]);
+    const done = todayTasks.filter((t) => t.completed).length;
+
+    return res.json({
+      success: true,
+      reply: `⚡ **TimeForge Agent Status**:\n• Current Streak: **${streakInfo.streak} days**\n• Today's Routine: **${done}/${todayTasks.length} completed**\n\nI am ready for your commands (e.g. *"Set streak to 5"*, *"Mark today 100%"*, *"Add task"*, *"Check routine status"*).`,
+      message: `TimeForge Agent is online. Streak: ${streakInfo.streak} days.`,
+      toolResults: [],
+      actions_taken: [],
+      streak: streakInfo.streak,
+    });
+  }
+});
+
 
 // AI Endpoint 1: Parse Natural Language Task
 app.post('/api/ai/parse-task', async (req, res) => {
@@ -332,12 +2070,15 @@ Return ONLY JSON:
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // In production, serve static frontend from dist directory
+    const distPath = fs.existsSync(path.join(__dirname, 'index.html'))
+      ? __dirname
+      : path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

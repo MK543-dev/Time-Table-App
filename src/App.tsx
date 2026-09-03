@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { TaskBoard } from './components/TaskBoard';
 import { VisualDiagrams } from './components/VisualDiagrams';
@@ -6,7 +6,9 @@ import { TimerBar } from './components/TimerBar';
 import { RotatingTimetable } from './components/RotatingTimetable';
 import { AdminPanel } from './components/AdminPanel';
 import { AIAssistantModal } from './components/AIAssistantModal';
+import { AgentChatModal } from './components/AgentChatModal';
 import { AnnouncementsModal } from './components/AnnouncementsModal';
+import { AuthModal, RegisteredAccount } from './components/AuthModal';
 import {
   INITIAL_TASKS,
   INITIAL_TIME_LOGS,
@@ -32,24 +34,72 @@ import {
   ThemeMode,
 } from './types';
 
+const INITIAL_REGISTERED_USERS: RegisteredAccount[] = [
+  { ...CURRENT_USER, password: 'password123' },
+  { ...ADMIN_USER, email: '218r1a0543@gmail.com', password: 'Admin@0543' },
+];
+
 export default function App() {
+  // Registered Accounts DB in Local Storage
+  const [registeredUsers, setRegisteredUsers] = useState<RegisteredAccount[]>(() => {
+    const saved = localStorage.getItem('timeforge_registered_users');
+    if (saved) {
+      try {
+        const parsed: RegisteredAccount[] = JSON.parse(saved);
+        // Ensure the updated admin credentials with 218r1a0543@gmail.com exist and are up to date
+        const adminIndex = parsed.findIndex((u) => u.role === 'admin' || u.email === '218r1a0543@gmail.com');
+        if (adminIndex >= 0) {
+          parsed[adminIndex] = {
+            ...parsed[adminIndex],
+            name: 'Institutional Admin',
+            email: '218r1a0543@gmail.com',
+            password: 'Admin@0543',
+            role: 'admin',
+          };
+          return parsed;
+        }
+        return [...parsed, { ...ADMIN_USER, email: '218r1a0543@gmail.com', password: 'Admin@0543' }];
+      } catch (e) {
+        return INITIAL_REGISTERED_USERS;
+      }
+    }
+    return INITIAL_REGISTERED_USERS;
+  });
+
+  const SCHEDULE_DATA_VERSION = 'v2_img_timetable';
+
   // Application State with Local Storage persistence
-  const [currentUser, setCurrentUser] = useState<User>(() => {
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('timeforge_user');
     return saved ? JSON.parse(saved) : CURRENT_USER;
   });
 
   const [tasks, setTasks] = useState<Task[]>(() => {
+    const currentVersion = localStorage.getItem('timeforge_schedule_version');
+    if (currentVersion !== SCHEDULE_DATA_VERSION) {
+      localStorage.setItem('timeforge_schedule_version', SCHEDULE_DATA_VERSION);
+      localStorage.setItem('timeforge_tasks', JSON.stringify(INITIAL_TASKS));
+      localStorage.setItem('timeforge_categories', JSON.stringify(INITIAL_CATEGORIES));
+      localStorage.setItem('timeforge_periods', JSON.stringify(INITIAL_CLASS_PERIODS));
+      localStorage.setItem('timeforge_logs', JSON.stringify(INITIAL_TIME_LOGS));
+      localStorage.setItem('timeforge_exams', JSON.stringify(INITIAL_EXAMS));
+      localStorage.setItem('timeforge_ai_summary', JSON.stringify(INITIAL_AI_SUMMARY));
+      return INITIAL_TASKS;
+    }
     const saved = localStorage.getItem('timeforge_tasks');
     return saved ? JSON.parse(saved) : INITIAL_TASKS;
   });
 
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>(() => {
+    const currentVersion = localStorage.getItem('timeforge_schedule_version');
+    if (currentVersion !== SCHEDULE_DATA_VERSION) return INITIAL_TIME_LOGS;
     const saved = localStorage.getItem('timeforge_logs');
     return saved ? JSON.parse(saved) : INITIAL_TIME_LOGS;
   });
 
   const [categories, setCategories] = useState<CategoryDef[]>(() => {
+    const currentVersion = localStorage.getItem('timeforge_schedule_version');
+    if (currentVersion !== SCHEDULE_DATA_VERSION) return INITIAL_CATEGORIES;
     const saved = localStorage.getItem('timeforge_categories');
     return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
   });
@@ -60,11 +110,15 @@ export default function App() {
   });
 
   const [exams, setExams] = useState<ExamCountdown[]>(() => {
+    const currentVersion = localStorage.getItem('timeforge_schedule_version');
+    if (currentVersion !== SCHEDULE_DATA_VERSION) return INITIAL_EXAMS;
     const saved = localStorage.getItem('timeforge_exams');
     return saved ? JSON.parse(saved) : INITIAL_EXAMS;
   });
 
   const [periods, setPeriods] = useState<ClassPeriod[]>(() => {
+    const currentVersion = localStorage.getItem('timeforge_schedule_version');
+    if (currentVersion !== SCHEDULE_DATA_VERSION) return INITIAL_CLASS_PERIODS;
     const saved = localStorage.getItem('timeforge_periods');
     return saved ? JSON.parse(saved) : INITIAL_CLASS_PERIODS;
   });
@@ -82,7 +136,10 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('board');
   const [theme, setTheme] = useState<ThemeMode>('glass');
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [isAnnouncementsModalOpen, setIsAnnouncementsModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'profile'>('login');
   const [unreadAnnouncementsCount, setUnreadAnnouncementsCount] = useState(2);
 
   // Active Timer state
@@ -96,8 +153,16 @@ export default function App() {
 
   // Save to LocalStorage whenever state updates
   useEffect(() => {
-    localStorage.setItem('timeforge_user', JSON.stringify(currentUser));
+    if (currentUser) {
+      localStorage.setItem('timeforge_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('timeforge_user');
+    }
   }, [currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem('timeforge_registered_users', JSON.stringify(registeredUsers));
+  }, [registeredUsers]);
 
   useEffect(() => {
     localStorage.setItem('timeforge_tasks', JSON.stringify(tasks));
@@ -140,12 +205,95 @@ export default function App() {
     };
   }, [activeTimer?.isRunning]);
 
+  const handleStreakUpdate = useCallback((newStreak: number) => {
+    setCurrentUser((prev) => {
+      if (!prev) return prev;
+      if (prev.streak_count === newStreak) return prev;
+      const todayStr = new Date().toISOString().split('T')[0];
+      const updatedUser: User = {
+        ...prev,
+        streak_count: newStreak,
+        longest_streak: Math.max(prev.longest_streak || 0, newStreak),
+        last_streak_date: newStreak > 0 ? todayStr : undefined,
+        last_active_date: todayStr,
+      };
+      try {
+        localStorage.setItem('timeforge_user', JSON.stringify(updatedUser));
+        const storedList = localStorage.getItem('timeforge_registered_users');
+        if (storedList) {
+          const parsed = JSON.parse(storedList);
+          const updatedList = parsed.map((u: User) => (u.id === prev.id ? updatedUser : u));
+          localStorage.setItem('timeforge_registered_users', JSON.stringify(updatedList));
+        }
+      } catch (err) {
+        // ignore
+      }
+      return updatedUser;
+    });
+  }, []);
+
+  // Automated Streak Verification: starts from 0; resets to 0 if a day was missed
+  useEffect(() => {
+    if (!currentUser) return;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    // New user with undefined streak -> default to 0
+    if (currentUser.streak_count === undefined) {
+      handleStreakUpdate(0);
+      return;
+    }
+
+    // If user's last_streak_date is older than yesterday and not today, streak has lapsed -> reset to 0
+    if (
+      currentUser.streak_count > 0 &&
+      currentUser.last_streak_date &&
+      currentUser.last_streak_date !== todayStr &&
+      currentUser.last_streak_date !== yesterdayStr
+    ) {
+      handleStreakUpdate(0);
+    }
+  }, [currentUser?.id, currentUser?.last_streak_date, currentUser?.streak_count, handleStreakUpdate]);
+
+  // Sync streak from AI agent or external updates
+  useEffect(() => {
+    const handleStreakEvent = (e: any) => {
+      if (e?.detail?.streak !== undefined && typeof e.detail.streak === 'number') {
+        handleStreakUpdate(e.detail.streak);
+      }
+    };
+    const handleStateEvent = () => {
+      if (currentUser?.id) {
+        fetch(`/daily-tasks?user_id=${currentUser.id}`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (data && typeof data.streak === 'number') {
+              handleStreakUpdate(data.streak);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    window.addEventListener('timeforge-streak-updated', handleStreakEvent);
+    window.addEventListener('timeforge-state-updated', handleStateEvent);
+    return () => {
+      window.removeEventListener('timeforge-streak-updated', handleStreakEvent);
+      window.removeEventListener('timeforge-state-updated', handleStateEvent);
+    };
+  }, [currentUser?.id, handleStreakUpdate]);
+
   // Task Handlers
   const handleToggleTask = (taskId: string) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    let isNowDone = false;
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id === taskId) {
           const nextStatus = t.status === 'done' ? 'pending' : 'done';
+          isNowDone = nextStatus === 'done';
           return { ...t, status: nextStatus };
         }
         return t;
@@ -153,17 +301,41 @@ export default function App() {
     );
 
     // Update user XP & Streak on complete
-    setCurrentUser((prev) => ({
-      ...prev,
-      xp: prev.xp + 25,
-      streak_count: prev.streak_count,
-    }));
+    if (currentUser && isNowDone) {
+      const newXp = (currentUser.xp || 0) + 25;
+      const newLevel = Math.floor(newXp / 200) + 1;
+      let newStreak = currentUser.streak_count || 0;
+      let lastStreakDate = currentUser.last_streak_date;
+
+      if (lastStreakDate !== todayStr) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        if (lastStreakDate === yesterdayStr) {
+          newStreak = (currentUser.streak_count || 0) + 1;
+        } else {
+          newStreak = 1;
+        }
+        lastStreakDate = todayStr;
+      }
+
+      const updatedUser: User = {
+        ...currentUser,
+        xp: newXp,
+        level: newLevel,
+        streak_count: newStreak,
+        longest_streak: Math.max(currentUser.longest_streak || 0, newStreak),
+        last_streak_date: lastStreakDate,
+        last_active_date: todayStr,
+      };
+      handleUpdateProfile(updatedUser);
+    }
   };
 
   const handleAddTask = (newTask: Partial<Task>) => {
     const task: Task = {
       id: `task-${Date.now()}`,
-      user_id: currentUser.id,
+      user_id: currentUser?.id || 'usr_guest',
       title: newTask.title || 'Untitled Task',
       category: newTask.category || categories[0]?.name || 'General Study',
       date: newTask.date || new Date().toISOString().split('T')[0],
@@ -189,6 +361,116 @@ export default function App() {
 
   const handleDeleteTask = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
+  };
+
+  // Master Admin Batch Handlers
+  const handleUnlockAllTasks = () => {
+    setTasks((prev) => prev.map((t) => ({ ...t, is_admin_locked: false })));
+  };
+
+  const handleLockAllTasks = () => {
+    setTasks((prev) => prev.map((t) => ({ ...t, is_admin_locked: true })));
+  };
+
+  const handleBatchCompleteAll = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setTasks((prev) =>
+      prev.map((t) => (!t.date || t.date === today ? { ...t, status: 'done' as const } : t))
+    );
+    if (currentUser) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const newStreak = (currentUser.streak_count || 0) + 1;
+      const updated = {
+        ...currentUser,
+        streak_count: newStreak,
+        longest_streak: Math.max(currentUser.longest_streak || 0, newStreak),
+        last_streak_date: todayStr,
+        last_active_date: todayStr,
+      };
+      handleUpdateProfile(updated);
+    }
+  };
+
+  const handleBatchResetAll = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setTasks((prev) =>
+      prev.map((t) => (!t.date || t.date === today ? { ...t, status: 'pending' as const } : t))
+    );
+  };
+
+  const handleResetStreak = (userId?: string) => {
+    if (userId) {
+      setRegisteredUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, streak_count: 0, last_streak_date: undefined } : u))
+      );
+      if (currentUser && currentUser.id === userId) {
+        const updated = { ...currentUser, streak_count: 0, last_streak_date: undefined };
+        setCurrentUser(updated);
+        localStorage.setItem('timeforge_user', JSON.stringify(updated));
+      }
+    } else if (currentUser) {
+      const updated = { ...currentUser, streak_count: 0, last_streak_date: undefined };
+      handleUpdateProfile(updated);
+    }
+  };
+
+  const handleResetAllStreaks = () => {
+    setRegisteredUsers((prev) =>
+      prev.map((u) => ({ ...u, streak_count: 0, last_streak_date: undefined }))
+    );
+    if (currentUser) {
+      const updated = { ...currentUser, streak_count: 0, last_streak_date: undefined };
+      setCurrentUser(updated);
+      localStorage.setItem('timeforge_user', JSON.stringify(updated));
+    }
+  };
+
+  const handleRestoreDefaultSchedule = () => {
+    setTasks(INITIAL_TASKS);
+    localStorage.setItem('timeforge_tasks', JSON.stringify(INITIAL_TASKS));
+  };
+
+  const handleClearAllTasks = () => {
+    if (confirm('Are you sure you want to delete all tasks from the schedule?')) {
+      setTasks([]);
+      localStorage.setItem('timeforge_tasks', JSON.stringify([]));
+    }
+  };
+
+  const handleUpdateUserAccount = (user: RegisteredAccount) => {
+    setRegisteredUsers((prev) => {
+      const updatedList = prev.map((u) => (u.id === user.id ? user : u));
+      localStorage.setItem('timeforge_registered_users', JSON.stringify(updatedList));
+      return updatedList;
+    });
+    if (currentUser && currentUser.id === user.id) {
+      setCurrentUser(user);
+      localStorage.setItem('timeforge_user', JSON.stringify(user));
+    }
+  };
+
+  const handleDeleteUserAccount = (userId: string) => {
+    setRegisteredUsers((prev) => {
+      const updatedList = prev.filter((u) => u.id !== userId);
+      localStorage.setItem('timeforge_registered_users', JSON.stringify(updatedList));
+      return updatedList;
+    });
+  };
+
+  const handleAddUserAccount = (newUser: RegisteredAccount) => {
+    setRegisteredUsers((prev) => {
+      const updatedList = [...prev, newUser];
+      localStorage.setItem('timeforge_registered_users', JSON.stringify(updatedList));
+      return updatedList;
+    });
+  };
+
+  const handleUpdatePeriod = (updated: ClassPeriod) => {
+    setPeriods((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  };
+
+  const handleUpdateExam = (updated: ExamCountdown) => {
+    setExams((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
   };
 
   // Timer Handlers
@@ -358,13 +640,52 @@ export default function App() {
     return false;
   };
 
+  // Authentication Handlers
+  const handleOpenAuthModal = (mode: 'login' | 'register' | 'profile' = 'login') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+  };
+
+  const handleRegister = (newUser: RegisteredAccount) => {
+    setRegisteredUsers((prev) => {
+      const updated = [...prev, newUser];
+      localStorage.setItem('timeforge_registered_users', JSON.stringify(updated));
+      return updated;
+    });
+    setCurrentUser(newUser);
+  };
+
+  const handleUpdateProfile = (updatedUser: User) => {
+    setCurrentUser(updatedUser);
+    setRegisteredUsers((prev) => {
+      const index = prev.findIndex((u) => u.id === updatedUser.id || u.email === updatedUser.email);
+      let updatedList = [...prev];
+      if (index >= 0) {
+        updatedList[index] = { ...updatedList[index], ...updatedUser };
+      } else {
+        updatedList.push(updatedUser);
+      }
+      localStorage.setItem('timeforge_registered_users', JSON.stringify(updatedList));
+      return updatedList;
+    });
+    localStorage.setItem('timeforge_user', JSON.stringify(updatedUser));
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('timeforge_user');
+  };
+
   // Role Switcher (Alex Rivera <-> Dr. Eleanor Vance)
   const handleSwitchUser = (role: 'admin' | 'user') => {
-    if (role === 'admin') {
-      setCurrentUser(ADMIN_USER);
-    } else {
-      setCurrentUser(CURRENT_USER);
-    }
+    const targetUser =
+      registeredUsers.find((u) => u.role === role) ||
+      (role === 'admin' ? ADMIN_USER : CURRENT_USER);
+    setCurrentUser(targetUser);
   };
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -388,6 +709,7 @@ export default function App() {
         setCurrentTab={setCurrentTab}
         currentUser={currentUser}
         onSwitchUser={handleSwitchUser}
+        onOpenAuthModal={handleOpenAuthModal}
         theme={theme}
         setTheme={setTheme}
         activeTimer={activeTimer}
@@ -400,6 +722,7 @@ export default function App() {
           setUnreadAnnouncementsCount(0);
         }}
         onOpenAISummary={() => setIsAiModalOpen(true)}
+        onOpenAIAgent={() => setIsAgentModalOpen(true)}
         brandName={adminConfig.organization_name ? `${adminConfig.organization_name} TimeForge` : 'TimeForge'}
       />
 
@@ -409,6 +732,9 @@ export default function App() {
           <TaskBoard
             tasks={tasks}
             categories={categories}
+            currentUser={currentUser}
+            isAdmin={currentUser?.role === 'admin'}
+            onStreakUpdate={handleStreakUpdate}
             onToggleTask={handleToggleTask}
             onAddTask={handleAddTask}
             onUpdateTask={handleUpdateTask}
@@ -419,6 +745,14 @@ export default function App() {
             currentDayCycle={adminConfig.rotation_cycle_current}
             onSplitTaskAI={handleSplitTaskAI}
             gamificationEnabled={adminConfig.gamification_enabled.value}
+            onUnlockAllTasks={handleUnlockAllTasks}
+            onLockAllTasks={handleLockAllTasks}
+            onBatchCompleteAll={handleBatchCompleteAll}
+            onBatchResetAll={handleBatchResetAll}
+            onResetStreak={() => handleResetStreak()}
+            onRestoreDefaultTasks={handleRestoreDefaultSchedule}
+            onClearAllTasks={handleClearAllTasks}
+            onOpenAIAgent={() => setIsAgentModalOpen(true)}
           />
         )}
 
@@ -428,11 +762,14 @@ export default function App() {
             exams={exams}
             categories={categories}
             currentCycle={adminConfig.rotation_cycle_current}
+            currentUser={currentUser}
             onAddPeriod={(p) =>
               setPeriods((prev) => [{ ...p, id: `period-${Date.now()}` } as ClassPeriod, ...prev])
             }
+            onUpdatePeriod={handleUpdatePeriod}
             onDeletePeriod={(id) => setPeriods((prev) => prev.filter((p) => p.id !== id))}
             onAddExam={(e) => setExams((prev) => [{ ...e, id: `exam-${Date.now()}` } as ExamCountdown, ...prev])}
+            onUpdateExam={handleUpdateExam}
             onDeleteExam={(id) => setExams((prev) => prev.filter((e) => e.id !== id))}
             onImportSyllabus={handleImportSyllabus}
           />
@@ -479,13 +816,14 @@ export default function App() {
           </div>
         )}
 
-        {currentTab === 'admin' && (
+        {currentTab === 'admin' && currentUser?.role === 'admin' && (
           <AdminPanel
             currentUser={currentUser}
             adminConfig={adminConfig}
             categories={categories}
             tasks={tasks}
             announcements={announcements}
+            registeredUsers={registeredUsers}
             onUpdateAdminConfig={setAdminConfig}
             onUpdateCategories={setCategories}
             onBroadcastAnnouncement={(ann) =>
@@ -496,9 +834,60 @@ export default function App() {
             }
             onDeleteAnnouncement={(id) => setAnnouncements((prev) => prev.filter((a) => a.id !== id))}
             onPushInstitutionalTask={(t) => handleAddTask({ ...t, is_admin_locked: true })}
+            onUpdateUserAccount={handleUpdateUserAccount}
+            onDeleteUserAccount={handleDeleteUserAccount}
+            onAddUserAccount={handleAddUserAccount}
+            onUnlockAllTasks={handleUnlockAllTasks}
+            onLockAllTasks={handleLockAllTasks}
+            onBatchCompleteAll={handleBatchCompleteAll}
+            onBatchResetAll={handleBatchResetAll}
+            onResetAllStreaks={handleResetAllStreaks}
+            onClearAllTasks={handleClearAllTasks}
+            onRestoreDefaultSchedule={handleRestoreDefaultSchedule}
+            onUpdateTask={handleUpdateTask}
+            onDeleteTask={handleDeleteTask}
           />
         )}
+
+        {currentTab === 'admin' && currentUser?.role !== 'admin' && (
+          <div className="max-w-xl mx-auto p-8 rounded-3xl glass-dark border border-amber-500/30 text-center space-y-4 shadow-2xl animate-fadeIn">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+              🔒
+            </div>
+            <h3 className="text-base font-bold text-white">Administrator Privileges Required</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Institutional policy enforcement, curriculum locks, and broadcast announcements are reserved for faculty & administrative dean accounts.
+            </p>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                onClick={() => handleSwitchUser('admin')}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-amber-500/20"
+              >
+                Switch to Admin Account (218r1a0543@gmail.com)
+              </button>
+              <button
+                onClick={() => handleOpenAuthModal('login')}
+                className="px-4 py-2 rounded-xl glass hover:bg-white/10 text-slate-200 text-xs font-semibold border border-white/10"
+              >
+                Sign In with Credentials
+              </button>
+            </div>
+          </div>
+        )}
       </main>
+
+      {/* Authentication & Profile Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        registeredUsers={registeredUsers}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onLogout={handleLogout}
+        onUpdateProfile={handleUpdateProfile}
+        initialMode={authModalMode}
+      />
 
       {/* AI Assistant Modal */}
       <AIAssistantModal
@@ -511,6 +900,16 @@ export default function App() {
         onApplySubtasks={handleApplySubtasks}
         onGenerateNewSummary={handleGenerateNewSummary}
         aiTonePersona={adminConfig.ai_tone_persona}
+      />
+
+      {/* Autonomous AI Agent Modal (Developer & User Modes) */}
+      <AgentChatModal
+        isOpen={isAgentModalOpen}
+        onClose={() => setIsAgentModalOpen(false)}
+        currentUser={currentUser}
+        onStateModified={() => {
+          window.dispatchEvent(new Event('timeforge-state-updated'));
+        }}
       />
 
       {/* Announcements Modal */}

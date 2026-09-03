@@ -8,15 +8,19 @@ import {
   ShieldAlert,
   Flame,
   Bell,
-  Square
+  Square,
+  LogIn,
+  UserCheck,
+  Bot,
 } from 'lucide-react';
 import { User, ThemeMode } from '../types';
 
 interface NavbarProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
-  currentUser: User;
+  currentUser: User | null;
   onSwitchUser: (role: 'admin' | 'user') => void;
+  onOpenAuthModal: (mode?: 'login' | 'register' | 'profile') => void;
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
   activeTimer: {
@@ -31,6 +35,7 @@ interface NavbarProps {
   unreadAnnouncementsCount: number;
   onOpenAnnouncements: () => void;
   onOpenAISummary: () => void;
+  onOpenAIAgent?: () => void;
   brandName?: string;
 }
 
@@ -39,6 +44,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setCurrentTab,
   currentUser,
   onSwitchUser,
+  onOpenAuthModal,
   theme,
   setTheme,
   activeTimer,
@@ -48,6 +54,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   unreadAnnouncementsCount,
   onOpenAnnouncements,
   onOpenAISummary,
+  onOpenAIAgent,
   brandName = 'TimeForge',
 }) => {
   const formatTime = (sec: number) => {
@@ -114,9 +121,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>{item.label}</span>
                   {item.adminOnly && (
                     <span className={`text-[9px] px-1 py-0.2 rounded font-mono uppercase ${
-                      currentUser.role === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-500'
+                      currentUser?.role === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-500'
                     }`}>
-                      {currentUser.role === 'admin' ? 'Admin' : 'Lock'}
+                      {currentUser?.role === 'admin' ? 'Admin' : 'Lock'}
                     </span>
                   )}
                 </button>
@@ -151,10 +158,25 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
 
             {/* Streak Badge from Theme */}
-            <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 rounded-full border border-amber-500/20">
-              <span className="text-amber-400 text-xs font-bold uppercase tracking-wider">Streak</span>
-              <span className="text-white font-mono text-xs">{currentUser.streak_count} Days</span>
-            </div>
+            {currentUser && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-amber-500/10 rounded-full border border-amber-500/20">
+                <span className="text-amber-400 text-xs font-bold uppercase tracking-wider">Streak</span>
+                <span className="text-white font-mono text-xs">{currentUser.streak_count} Days</span>
+              </div>
+            )}
+
+            {/* AI Agent (Developer & User Interactive Assistant) */}
+            {onOpenAIAgent && (
+              <button
+                id="header-ai-agent-btn"
+                onClick={onOpenAIAgent}
+                title="Open AI Agent (Developer Task Runner & Assistant)"
+                className="glass p-2 sm:px-3 sm:py-1.5 rounded-xl border border-purple-500/40 text-purple-300 hover:bg-purple-500/15 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+              >
+                <Bot className="w-3.5 h-3.5 text-purple-400" />
+                <span className="hidden md:inline">AI Agent</span>
+              </button>
+            )}
 
             {/* AI Assistant Quick Trigger */}
             <button
@@ -182,35 +204,67 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            {/* User / Admin Avatar Switcher */}
-            <div className="relative group">
-              <button
-                id="role-switch-button"
-                onClick={() => onSwitchUser(currentUser.role === 'admin' ? 'user' : 'admin')}
-                className="flex items-center gap-2 p-1 pl-1 pr-2.5 rounded-xl glass hover:bg-white/5 border border-white/10 text-xs font-medium transition-all"
-                title={`Currently in ${currentUser.role.toUpperCase()} role. Click to toggle role.`}
-              >
-                <div className="w-7 h-7 rounded-full bg-gradient-to-b from-slate-700 to-slate-900 border border-white/20 overflow-hidden flex items-center justify-center">
-                  <img
-                    src={currentUser.avatar}
-                    alt={currentUser.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <span className="hidden md:inline text-slate-300 font-medium text-xs">
-                  {currentUser.name.split(' ')[0]}
-                </span>
-                <span
-                  className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded font-bold ${
-                    currentUser.role === 'admin'
-                      ? 'bg-amber-500 text-black'
-                      : 'bg-white/10 text-slate-300'
-                  }`}
+            {/* User Account / Sign In Controls */}
+            {currentUser ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  id="profile-manage-button"
+                  onClick={() => onOpenAuthModal('profile')}
+                  className="flex items-center gap-2 p-1 pl-1 pr-2.5 rounded-xl glass hover:bg-white/10 border border-white/10 text-xs font-medium transition-all group"
+                  title="View Account Profile, Stats & Switch Accounts"
                 >
-                  {currentUser.role}
-                </span>
-              </button>
-            </div>
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-b from-slate-700 to-slate-900 border border-white/20 overflow-hidden flex items-center justify-center group-hover:border-cyan-400 transition-colors">
+                    <img
+                      src={currentUser.avatar}
+                      alt={currentUser.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="hidden md:flex flex-col text-left leading-tight">
+                    <span className="text-slate-200 group-hover:text-white font-semibold text-xs truncate max-w-[110px]">
+                      {currentUser.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono truncate max-w-[110px]">
+                      {currentUser.email}
+                    </span>
+                  </div>
+                  <span
+                    className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded font-bold ${
+                      currentUser.role === 'admin'
+                        ? 'bg-amber-500 text-black shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                        : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                    }`}
+                  >
+                    {currentUser.role}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => onOpenAuthModal('login')}
+                  className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass hover:bg-white/10 border border-white/10 text-[11px] font-semibold text-slate-300 hover:text-white transition-colors"
+                  title="Sign In with different account or Admin credentials"
+                >
+                  <LogIn className="w-3 h-3 text-cyan-400" />
+                  <span>Switch</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onOpenAuthModal('login')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-colors"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Sign In</span>
+                </button>
+                <button
+                  onClick={() => onOpenAuthModal('register')}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold transition-all shadow-[0_0_12px_rgba(34,211,238,0.3)]"
+                >
+                  <span>Register</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

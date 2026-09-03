@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   CheckCircle2,
   Circle,
@@ -6,6 +6,7 @@ import {
   Plus,
   Sparkles,
   Lock,
+  Unlock,
   Play,
   Square,
   Trash2,
@@ -20,15 +21,22 @@ import {
   CheckCheck,
   ChevronRight,
   Info,
-  Tag
+  Tag,
+  ShieldCheck,
+  RotateCcw,
+  RefreshCw
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Task, CategoryDef, TaskPriority, TaskStatus, RecurrenceType } from '../types';
+import { Task, CategoryDef, TaskPriority, TaskStatus, RecurrenceType, User } from '../types';
 import { ThreeProgressRing } from './ThreeProgressRing';
+import { DailyTasksSection } from './DailyTasksSection';
 
 interface TaskBoardProps {
   tasks: Task[];
   categories: CategoryDef[];
+  currentUser?: User | null;
+  isAdmin?: boolean;
+  onStreakUpdate?: (newStreak: number) => void;
   onToggleTask: (taskId: string) => void;
   onAddTask: (task: Partial<Task>) => void;
   onUpdateTask: (task: Task) => void;
@@ -39,11 +47,22 @@ interface TaskBoardProps {
   currentDayCycle: 'A' | 'B';
   onSplitTaskAI: (task: Task) => void;
   gamificationEnabled: boolean;
+  onUnlockAllTasks?: () => void;
+  onLockAllTasks?: () => void;
+  onBatchCompleteAll?: () => void;
+  onBatchResetAll?: () => void;
+  onResetStreak?: () => void;
+  onClearAllTasks?: () => void;
+  onRestoreDefaultTasks?: () => void;
+  onOpenAIAgent?: () => void;
 }
 
 export const TaskBoard: React.FC<TaskBoardProps> = ({
   tasks,
   categories,
+  currentUser,
+  isAdmin: propIsAdmin,
+  onStreakUpdate,
   onToggleTask,
   onAddTask,
   onUpdateTask,
@@ -54,6 +73,14 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
   currentDayCycle = 'A',
   onSplitTaskAI,
   gamificationEnabled = true,
+  onUnlockAllTasks,
+  onLockAllTasks,
+  onBatchCompleteAll,
+  onBatchResetAll,
+  onResetStreak,
+  onClearAllTasks,
+  onRestoreDefaultTasks,
+  onOpenAIAgent,
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,6 +101,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
   const [newPriority, setNewPriority] = useState<TaskPriority>('medium');
   const [newRecurrence, setNewRecurrence] = useState<RecurrenceType>('none');
   const [newNotes, setNewNotes] = useState('');
+  const [newIsAdminLocked, setNewIsAdminLocked] = useState(false);
+
+  const isAdmin = currentUser?.role === 'admin';
 
   // Filter tasks for selected date
   const filteredTasks = tasks.filter((t) => {
@@ -95,15 +125,52 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
     return matchesDate && matchesCategory && matchesPriority && matchesStatus && matchesSearch;
   });
 
-  // Calculate metrics for today
-  const dailyTasks = tasks.filter((t) => !t.date || t.date === selectedDate);
-  const completedCount = dailyTasks.filter((t) => t.status === 'done').length;
-  const totalCount = dailyTasks.length;
-  const totalPlannedMinutes = dailyTasks.reduce((acc, t) => acc + (t.duration_minutes || 60), 0);
-  const totalPlannedHours = (totalPlannedMinutes / 60).toFixed(1);
-  const totalLoggedSeconds = dailyTasks.reduce((acc, t) => acc + (t.time_spent_seconds || 0), 0);
-  const totalLoggedHours = (totalLoggedSeconds / 3600).toFixed(1);
-  const isOverloaded = parseFloat(totalPlannedHours) > maxDailyHoursThreshold;
+  // Daily tasks progress state for 3D hero ring and stats
+  const [dailyProgress, setDailyProgress] = useState<{
+    completed: number;
+    total: number;
+    percentage: number;
+    plannedMinutes: number;
+    completedMinutes: number;
+  }>({
+    completed: 0,
+    total: 10,
+    percentage: 0,
+    plannedMinutes: 676,
+    completedMinutes: 0,
+  });
+
+  const handleProgressUpdate = useCallback(
+    (stats: {
+      completed: number;
+      total: number;
+      percentage: number;
+      plannedMinutes: number;
+      completedMinutes: number;
+    }) => {
+      setDailyProgress((prev) => {
+        if (
+          prev.completed === stats.completed &&
+          prev.total === stats.total &&
+          prev.percentage === stats.percentage &&
+          prev.plannedMinutes === stats.plannedMinutes &&
+          prev.completedMinutes === stats.completedMinutes
+        ) {
+          return prev;
+        }
+        return stats;
+      });
+    },
+    []
+  );
+
+  const handleDateChange = useCallback((newD: string) => {
+    setSelectedDate(newD);
+  }, []);
+
+  const displayPlannedHours = (dailyProgress.plannedMinutes / 60).toFixed(1);
+  const displayCompletedHours = (dailyProgress.completedMinutes / 60).toFixed(1);
+  const isOverloaded = parseFloat(displayPlannedHours) > maxDailyHoursThreshold;
 
   // Handle Checkbox Toggle with celebration
   const handleCheckboxClick = (task: Task) => {
@@ -195,6 +262,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
         priority: newPriority,
         recurrence_rule: newRecurrence,
         notes: newNotes,
+        is_admin_locked: isAdmin ? newIsAdminLocked : editingTask.is_admin_locked,
       });
       setEditingTask(null);
     } else {
@@ -208,7 +276,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
         priority: newPriority,
         status: 'pending',
         recurrence_rule: newRecurrence,
-        is_admin_locked: false,
+        is_admin_locked: isAdmin ? newIsAdminLocked : false,
         time_spent_seconds: 0,
         tags: ['Manual Entry'],
         notes: newNotes,
@@ -218,6 +286,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
     setIsAddingTask(false);
     setNewTitle('');
     setNewNotes('');
+    setNewIsAdminLocked(false);
   };
 
   const getPriorityBadgeClass = (p: TaskPriority) => {
@@ -246,11 +315,121 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Admin Master Access Toolbar */}
+      {isAdmin && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.15)] space-y-3 animate-fadeIn">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-bold text-sm shadow-[0_0_10px_rgba(245,158,11,0.3)]">
+                👑
+              </div>
+              <div>
+                <div className="text-xs font-bold text-amber-300 flex items-center gap-2">
+                  <span>Administrator Master Access Control</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 font-mono">
+                    Full Override Enabled
+                  </span>
+                </div>
+                <div className="text-[11px] text-amber-200/70">
+                  You have omnipotent access across the entire app to modify, lock/unlock, delete, or reset any routine and streaks.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {onUnlockAllTasks && (
+                <button
+                  type="button"
+                  onClick={onUnlockAllTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass hover:bg-white/10 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-all shadow-sm"
+                  title="Unlock all tasks so anyone can modify them"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>Unlock All</span>
+                </button>
+              )}
+
+              {onLockAllTasks && (
+                <button
+                  type="button"
+                  onClick={onLockAllTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass hover:bg-white/10 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-all shadow-sm"
+                  title="Lock all tasks to enforce institutional routine"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Lock All</span>
+                </button>
+              )}
+
+              {onBatchCompleteAll && (
+                <button
+                  type="button"
+                  onClick={onBatchCompleteAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all shadow-sm"
+                  title="Mark all tasks for today as completed"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>Complete All</span>
+                </button>
+              )}
+
+              {onBatchResetAll && (
+                <button
+                  type="button"
+                  onClick={onBatchResetAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition-all shadow-sm"
+                  title="Reset all tasks to pending status"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset to Pending</span>
+                </button>
+              )}
+
+              {onResetStreak && (
+                <button
+                  type="button"
+                  onClick={onResetStreak}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-all shadow-sm"
+                  title="Reset streak count to zero"
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  <span>Reset Streak to 0</span>
+                </button>
+              )}
+
+              {onRestoreDefaultTasks && (
+                <button
+                  type="button"
+                  onClick={onRestoreDefaultTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass hover:bg-white/10 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all shadow-sm"
+                  title="Reload institutional standard 11 timetable routine tasks"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Restore Schedule</span>
+                </button>
+              )}
+
+              {onClearAllTasks && (
+                <button
+                  type="button"
+                  onClick={onClearAllTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all shadow-sm"
+                  title="Remove all tasks from schedule"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear All</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Hero Layout: 3D Torus Progress Ring + Day Overview & AI Quick Bar */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: 3D Torus Hero Ring */}
+        {/* Left: 3D Torus Hero Ring (Dynamic Daily Velocity) */}
         <div className="lg:col-span-4 flex flex-col">
-          <ThreeProgressRing completed={completedCount} total={totalCount} />
+          <ThreeProgressRing completed={dailyProgress.completed} total={dailyProgress.total} />
         </div>
 
         {/* Right: Immersive Day Bar, AI Natural Language Entry & Capacity */}
@@ -347,24 +526,24 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
           {/* Schedule Capacity & Planned vs Logged Hours */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
             <div className="p-3.5 rounded-xl glass-dark border border-white/5">
-              <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Planned Workload</div>
+              <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Planned Routine</div>
               <div className="text-lg font-bold font-mono text-slate-100 mt-0.5 flex items-baseline gap-1">
-                <span>{totalPlannedHours} hrs</span>
+                <span>{displayPlannedHours} hrs</span>
                 <span className="text-xs text-slate-500 font-normal">/ max {maxDailyHoursThreshold}h</span>
               </div>
             </div>
 
             <div className="p-3.5 rounded-xl glass-dark border border-white/5">
-              <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Actual Logged Focus</div>
+              <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Completed Routine</div>
               <div className="text-lg font-bold font-mono text-cyan-400 mt-0.5">
-                {totalLoggedHours} hrs
+                {displayCompletedHours} hrs
               </div>
             </div>
 
             <div className="p-3.5 rounded-xl glass-dark border border-white/5">
               <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Completion Velocity</div>
               <div className="text-lg font-bold font-mono text-white mt-0.5">
-                {totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}%
+                {dailyProgress.percentage}%
               </div>
             </div>
           </div>
@@ -374,286 +553,22 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
             <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs">
               <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
               <div>
-                <span className="font-bold">Schedule Warning:</span> You have planned {totalPlannedHours} hours for today, which exceeds your institutional {maxDailyHoursThreshold}h threshold.
+                <span className="font-bold">Schedule Warning:</span> You have planned {displayPlannedHours} hours for today, which exceeds your institutional {maxDailyHoursThreshold}h threshold.
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Task Filters and Search Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl glass border border-white/5">
-        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[240px]">
-          <div className="relative w-full max-w-xs">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              id="search-tasks-input"
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search schedule, tags, subjects..."
-              className="w-full pl-9 pr-3 py-1.5 rounded-xl glass-dark border border-white/10 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
-            />
-          </div>
-
-          {/* Status filter chips */}
-          <div className="flex items-center gap-1">
-            {['all', 'active', 'done', 'skipped'].map((st) => (
-              <button
-                key={st}
-                onClick={() => setSelectedStatus(st)}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize transition-all ${
-                  selectedStatus === st
-                    ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-[0_0_10px_rgba(34,211,238,0.15)]'
-                    : 'glass-dark text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {st}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Priority & Category dropdown filters */}
-        <div className="flex items-center gap-2">
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-1.5 rounded-xl glass-dark border border-white/10 text-xs text-slate-200 focus:outline-none focus:border-cyan-500/50 cursor-pointer"
-          >
-            <option value="all">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.name} className="bg-slate-900 text-slate-200">
-                {c.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={selectedPriority}
-            onChange={(e) => setSelectedPriority(e.target.value)}
-            className="px-3 py-1.5 rounded-xl glass-dark border border-white/10 text-xs text-slate-200 focus:outline-none focus:border-cyan-500/50 cursor-pointer"
-          >
-            <option value="all" className="bg-slate-900 text-slate-200">All Priorities</option>
-            <option value="high" className="bg-slate-900 text-slate-200">High Priority</option>
-            <option value="medium" className="bg-slate-900 text-slate-200">Medium Priority</option>
-            <option value="low" className="bg-slate-900 text-slate-200">Low Priority</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Task List Section */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <div className="text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
-            <span>Today's Schedule</span>
-            <span className="text-cyan-400 font-mono">({filteredTasks.length} Blocks)</span>
-          </div>
-
-          <div className="text-xs text-slate-400 font-medium">
-            Block {currentDayCycle} Timetable
-          </div>
-        </div>
-
-        {filteredTasks.length === 0 ? (
-          <div className="p-12 text-center rounded-2xl glass-dark border border-dashed border-white/10">
-            <Clock className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-            <div className="text-sm font-semibold text-slate-300">No scheduled blocks found for this filter</div>
-            <div className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-              Add a class or study block using the AI quick bar above or click "Add Block".
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {filteredTasks.map((task) => {
-              const isDone = task.status === 'done';
-              const isTimerActive = activeTimerTaskId === task.id;
-
-              return (
-                <div
-                  key={task.id}
-                  id={`task-item-${task.id}`}
-                  className={`group relative flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl transition-all duration-200 ${
-                    isDone
-                      ? 'glass-dark opacity-75 border-l-4 border-l-green-500 border-t border-r border-b border-white/5'
-                      : isTimerActive
-                      ? 'glass border-l-4 border-l-cyan-500 border-t border-r border-b border-white/15 glow-cyan-sm'
-                      : task.is_admin_locked
-                      ? 'glass-dark opacity-80 border-l-4 border-l-indigo-500 border-t border-r border-b border-white/5'
-                      : 'glass-dark border-l-4 border-l-slate-600 hover:border-l-cyan-400 border-t border-r border-b border-white/5'
-                  }`}
-                >
-                  {/* Left Column: Checkbox, Title, Category dot, Time slot */}
-                  <div className="flex items-start sm:items-center gap-3.5 flex-1 min-w-0">
-                    {/* Interactive Checkbox */}
-                    <button
-                      id={`task-toggle-${task.id}`}
-                      onClick={() => handleCheckboxClick(task)}
-                      className="mt-0.5 sm:mt-0 text-slate-400 hover:text-cyan-400 transition-colors shrink-0"
-                    >
-                      {isDone ? (
-                        <CheckCircle2 className="w-6 h-6 text-green-400 fill-green-500/20" />
-                      ) : (
-                        <Circle className="w-6 h-6 text-slate-500 group-hover:text-cyan-400" />
-                      )}
-                    </button>
-
-                    <div className="space-y-1 min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`text-sm font-bold tracking-tight truncate ${
-                            isDone ? 'line-through text-slate-500' : 'text-white'
-                          }`}
-                        >
-                          {task.title}
-                        </span>
-
-                        {/* Status Label */}
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                          isDone ? 'text-green-400' : isTimerActive ? 'text-cyan-400' : 'text-slate-500'
-                        }`}>
-                          {isDone ? 'DONE' : isTimerActive ? 'ACTIVE' : task.start_time}
-                        </span>
-
-                        {/* Admin Locked Badge */}
-                        {task.is_admin_locked && (
-                          <span
-                            title="Set by your organization."
-                            className="px-1.5 py-0.5 bg-indigo-500/20 text-indigo-400 rounded text-[9px] font-bold border border-indigo-500/30 uppercase cursor-help flex items-center gap-1"
-                          >
-                            <Lock className="w-2.5 h-2.5" />
-                            <span>Locked by Admin</span>
-                          </span>
-                        )}
-
-                        {/* Priority Badge */}
-                        <span
-                          className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${getPriorityBadgeClass(
-                            task.priority
-                          )}`}
-                        >
-                          {task.priority}
-                        </span>
-                      </div>
-
-                      {/* Subtitle Details: Category, Time slot, Logged info */}
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                        {/* Time & Room info */}
-                        <div className="flex items-center gap-1 text-slate-400">
-                          <span className="font-mono">
-                            {task.start_time} - {task.end_time} ({task.duration_minutes}m)
-                          </span>
-                          {task.room && (
-                            <>
-                              <span className="text-slate-600">•</span>
-                              <span className="text-slate-400 font-mono text-[11px]">{task.room}</span>
-                            </>
-                          )}
-                        </div>
-
-                        {/* Category */}
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ backgroundColor: getCategoryColor(task.category) }}
-                          />
-                          <span className="font-medium text-slate-400">{task.category}</span>
-                        </div>
-
-                        {/* Time Logged Tag */}
-                        {task.time_spent_seconds > 0 && (
-                          <div className="flex items-center gap-1 text-cyan-400 font-mono font-medium text-[11px]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.8)]" />
-                            <span>Logged: {formatSeconds(task.time_spent_seconds)}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Actions (Start Timer, AI Split, Edit, Delete) */}
-                  <div className="flex items-center gap-2 mt-3 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5 shrink-0">
-                    {/* Toggl-Style Start/Stop Timer Button */}
-                    <button
-                      id={`task-timer-btn-${task.id}`}
-                      onClick={() => onStartTimer(task)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                        isTimerActive
-                          ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25'
-                          : 'glass hover:bg-white/10 text-white border border-white/10'
-                      }`}
-                    >
-                      {isTimerActive ? (
-                        <>
-                          <Square className="w-3.5 h-3.5 fill-white" />
-                          <span>Stop</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-3.5 h-3.5 text-cyan-400 fill-cyan-400" />
-                          <span>Track</span>
-                        </>
-                      )}
-                    </button>
-
-                    {/* AI Task Splitter Button */}
-                    {!isDone && (
-                      <button
-                        onClick={() => onSplitTaskAI(task)}
-                        title="AI Split: Break this task into 45-minute actionable blocks"
-                        className="p-1.5 rounded-xl glass hover:bg-white/10 text-cyan-300 border border-cyan-500/30 transition-colors"
-                      >
-                        <Split className="w-4 h-4" />
-                      </button>
-                    )}
-
-                    {/* Edit Button */}
-                    <button
-                      onClick={() => {
-                        setEditingTask(task);
-                        setNewTitle(task.title);
-                        setNewCategory(task.category);
-                        setNewStartTime(task.start_time);
-                        setNewEndTime(task.end_time);
-                        setNewPriority(task.priority);
-                        setNewRecurrence(task.recurrence_rule);
-                        setNewNotes(task.notes || '');
-                        setIsAddingTask(true);
-                      }}
-                      className="p-1.5 rounded-xl glass hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                      title="Edit task parameters"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-
-                    {/* Delete Button (disabled if admin-locked) */}
-                    <button
-                      onClick={() => {
-                        if (task.is_admin_locked) {
-                          alert('This task is locked by your organization governance policy.');
-                          return;
-                        }
-                        if (confirm(`Remove "${task.title}" from timetable?`)) {
-                          onDeleteTask(task.id);
-                        }
-                      }}
-                      disabled={task.is_admin_locked}
-                      className={`p-1.5 rounded-xl transition-colors ${
-                        task.is_admin_locked
-                          ? 'opacity-25 cursor-not-allowed text-slate-600 glass'
-                          : 'glass hover:bg-rose-500/20 text-slate-400 hover:text-rose-300'
-                      }`}
-                      title={task.is_admin_locked ? 'Locked by organization' : 'Delete task'}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {/* Permanent Daily Tasks Section (Directly visible on main dashboard, resets daily) */}
+      <DailyTasksSection
+        currentUser={currentUser}
+        selectedDate={selectedDate}
+        onDateChange={handleDateChange}
+        onProgressUpdate={handleProgressUpdate}
+        onStreakUpdate={onStreakUpdate}
+        onOpenAIAgent={onOpenAIAgent}
+      />
 
       {/* Manual Task Add / Edit Modal */}
       {isAddingTask && (
@@ -753,6 +668,26 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
                   <option value="rotating_B" className="bg-slate-900 text-slate-200">Block B Rotation</option>
                 </select>
               </div>
+
+              {isAdmin && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Institutional Lock Policy</span>
+                    </div>
+                    <div className="text-[11px] text-amber-200/70">
+                      When locked, regular users cannot delete or remove this block.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={newIsAdminLocked}
+                    onChange={(e) => setNewIsAdminLocked(e.target.checked)}
+                    className="w-4 h-4 rounded border-amber-500/50 text-amber-500 focus:ring-amber-400/50 bg-slate-900 cursor-pointer"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-semibold text-slate-300">Notes & Objectives</label>

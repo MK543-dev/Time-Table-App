@@ -1,0 +1,276 @@
+{
+  "tasks": [
+    {
+      "id": "dt_1",
+      "order": 1,
+      "title": "Wake-Up",
+      "time_slot": "5:00 - 5:30",
+      "duration_minutes": 30,
+      "category": "Morning Routine & Fitness",
+      "notes": "Early morning wake-up and hydration (5:00 - 5:30)",
+      "icon": "Sun"
+    },
+    {
+      "id": "dt_2",
+      "order": 2,
+      "title": "Qur'an Reading",
+      "time_slot": "15mins",
+      "duration_minutes": 15,
+      "category": "Spiritual & Qur'an",
+      "notes": "Daily Qur'an recitation and spiritual focus (15 mins)",
+      "icon": "BookOpen"
+    },
+    {
+      "id": "dt_3",
+      "order": 3,
+      "title": "Walking",
+      "time_slot": "1-1/2 hr",
+      "duration_minutes": 90,
+      "category": "Morning Routine & Fitness",
+      "notes": "Morning walking exercise and fresh air (1-1/2 hr)",
+      "icon": "Activity"
+    },
+    {
+      "id": "dt_4",
+      "order": 4,
+      "title": "Rgular-class",
+      "time_slot": "10:30 - 1:31",
+      "duration_minutes": 181,
+      "category": "Core Academic Classes",
+      "notes": "University & department regular lecture blocks (10:30 - 1:31)",
+      "icon": "GraduationCap"
+    },
+    {
+      "id": "dt_5",
+      "order": 5,
+      "title": "ML",
+      "time_slot": "1hr/30mins",
+      "duration_minutes": 90,
+      "category": "Machine Learning (ML)",
+      "notes": "Machine Learning model architecture & concepts (1hr/30mins)",
+      "icon": "Cpu"
+    },
+    {
+      "id": "dt_6",
+      "order": 6,
+      "title": "Data Science Video",
+      "time_slot": "15-30mins",
+      "duration_minutes": 30,
+      "category": "Data Science (DS)",
+      "notes": "Data Science technical lecture or conceptual video (15-30mins)",
+      "icon": "Video"
+    },
+    {
+      "id": "dt_7",
+      "order": 7,
+      "title": "PytonPractice",
+      "time_slot": "2-3hr",
+      "duration_minutes": 150,
+      "category": "Python Programming",
+      "notes": "Hands-on Python coding exercises & scripts (2-3hr)",
+      "icon": "Code"
+    },
+    {
+      "id": "dt_8",
+      "order": 8,
+      "title": "SQL",
+      "time_slot": "30mins",
+      "duration_minutes": 30,
+      "category": "SQL & Databases",
+      "notes": "Relational queries, schema design & practice (30mins)",
+      "icon": "Database"
+    },
+    {
+      "id": "dt_9",
+      "order": 9,
+      "title": "Communication",
+      "time_slot": "30min",
+      "duration_minutes": 30,
+      "category": "Communication Skills",
+      "notes": "Verbal, professional & presentation skills development (30min)",
+      "icon": "MessageSquare"
+    },
+    {
+      "id": "dt_10",
+      "order": 10,
+      "title": "DSA",
+      "time_slot": "30mins",
+      "duration_minutes": 30,
+      "category": "DSA & Problem Solving",
+      "notes": "Data Structures and Algorithms LeetCode / problem solving (30mins)",
+      "icon": "Layers"
+    }
+  ],
+  "completions": [
+    {
+      "id": "dtc_3008_1",
+      "user_id": "usr_1",
+      "task_id": "dt_1",
+      "date": "2026-08-30",
+      "completed": true,
+      "completed_at": "2026-08-30T05:30:00Z"
+    },
+    {
+      "id": "dtc_3008_2",
+      "user_id": "usr_1",
+      "task_id": "dt_2",
+      "date": "2026-08-30",
+      "completed": true,
+      "completed_at": "2026-08-30T05:45:00Z"
+    },
+    {
+      "id": "dtc_3008_3",
+      "user_id": "usr_1",
+      "task_id": "dt_3",
+      "date": "2026-08-30",
+      "completed": true,
+      "completed_at": "2026-08-30T07:15:00Z"
+    },
+    {
+      "id": "dtc_3008_4",
+      "user_id": "usr_1",
+      "task_id": "dt_4",
+      "date": "2026-08-30",
+      "completed": true,
+      "completed_at": "2026-08-30T13:30:00Z"
+    },
+    {
+      "id": "dtc_3008_6",
+      "user_id": "usr_1",
+      "task_id": "dt_6",
+      "date": "2026-08-30",
+      "completed": true,
+      "completed_at": "2026-08-30T19:00:00Z"
+    },
+    {
+      "id": "dtc_3008_7",
+      "user_id": "usr_1",
+      "task_id": "dt_7",
+      "date": "2026-08-30",
+      "completed": true,
+      "completed_at": "2026-08-30T22:30:00Z"
+    },
+    {
+      "id": "dtc_3108_1",
+      "user_id": "usr_1",
+      "task_id": "dt_1",
+      "date": "2026-08-31",
+      "completed": true,
+      "completed_at": "2026-08-31T05:25:00Z"
+    },
+    {
+      "id": "dtc_3108_2",
+      "user_id": "usr_1",
+      "task_id": "dt_2",
+      "date": "2026-08-31",
+      "completed": true,
+      "completed_at": "2026-08-31T05:42:00Z"
+    },
+    {
+      "id": "dtc_3108_3",
+      "user_id": "usr_1",
+      "task_id": "dt_3",
+      "date": "2026-08-31",
+      "completed": true,
+      "completed_at": "2026-08-31T07:10:00Z"
+    },
+    {
+      "id": "dtc_3108_4",
+      "user_id": "usr_1",
+      "task_id": "dt_4",
+      "date": "2026-08-31",
+      "completed": true,
+      "completed_at": "2026-08-31T13:30:00Z"
+    },
+    {
+      "id": "dtc_3108_7",
+      "user_id": "usr_1",
+      "task_id": "dt_7",
+      "date": "2026-08-31",
+      "completed": true,
+      "completed_at": "2026-08-31T22:30:00Z"
+    },
+    {
+      "id": "dtc_0109_2",
+      "user_id": "usr_1",
+      "task_id": "dt_2",
+      "date": "2026-09-01",
+      "completed": true,
+      "completed_at": "2026-09-01T05:40:00Z"
+    },
+    {
+      "id": "dtc_1788448929199_wxyx",
+      "user_id": "usr_1",
+      "task_id": "dt_1",
+      "date": "2026-09-03",
+      "completed": false
+    },
+    {
+      "id": "dtc_1788448934770_9hdk",
+      "user_id": "usr_1",
+      "task_id": "dt_2",
+      "date": "2026-09-03",
+      "completed": true,
+      "completed_at": "2026-09-03T15:22:14.770Z"
+    },
+    {
+      "id": "dtc_1788448940880_htzj",
+      "user_id": "usr_1",
+      "task_id": "dt_5",
+      "date": "2026-09-03",
+      "completed": true,
+      "completed_at": "2026-09-03T15:22:20.880Z"
+    },
+    {
+      "id": "dtc_1788448942582_zq6v",
+      "user_id": "usr_1",
+      "task_id": "dt_7",
+      "date": "2026-09-03",
+      "completed": true,
+      "completed_at": "2026-09-03T15:22:22.582Z"
+    },
+    {
+      "id": "dtc_1788448945460_840q",
+      "user_id": "usr_1",
+      "task_id": "dt_4",
+      "date": "2026-09-03",
+      "completed": true,
+      "completed_at": "2026-09-03T15:22:25.460Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "usr_1",
+      "name": "Alex Rivera",
+      "email": "alex.rivera@university.edu",
+      "password": "password123",
+      "role": "user",
+      "streak_count": 5,
+      "longest_streak": 5,
+      "xp": 240,
+      "level": 2,
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      "department": "Computer Science & Engineering",
+      "created_at": "2026-08-20",
+      "last_streak_date": "2026-09-03"
+    },
+    {
+      "id": "usr_admin",
+      "name": "Institutional Admin",
+      "email": "218r1a0543@gmail.com",
+      "password": "adminpassword",
+      "role": "admin",
+      "streak_count": 0,
+      "longest_streak": 12,
+      "xp": 950,
+      "level": 5,
+      "avatar": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
+      "department": "Academic Operations & Governance",
+      "created_at": "2026-08-01"
+    }
+  ],
+  "user_tasks": {},
+  "streaks": {
+    "usr_1": 5
+  }
+}

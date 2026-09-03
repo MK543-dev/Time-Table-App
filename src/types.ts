@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'admin' | 'user' | 'developer';
 export type ThemeMode = 'glass' | 'dark' | 'light';
 export type TaskPriority = 'high' | 'medium' | 'low';
 export type TaskStatus = 'pending' | 'done' | 'skipped';
@@ -16,6 +16,8 @@ export interface User {
   level: number;
   avatar: string;
   department?: string;
+  last_active_date?: string;
+  last_streak_date?: string;
 }
 
 export interface Task {
@@ -125,3 +127,68 @@ export interface CategoryDef {
   is_core_academic?: boolean;
   icon?: string;
 }
+
+export interface DailyTaskDefinition {
+  id: string;
+  order: number;
+  title: string;
+  time_slot: string; // e.g. "5:00 - 5:30", "15mins", "1-1/2 hr", "10:30 - 1:31", etc.
+  duration_minutes: number;
+  category: string;
+  notes?: string;
+  icon?: string;
+}
+
+export interface DailyTaskCompletion {
+  id: string;
+  user_id: string;
+  task_id: string;
+  date: string; // YYYY-MM-DD
+  completed: boolean;
+  completed_at?: string;
+}
+
+export interface DailyTaskWithStatus extends DailyTaskDefinition {
+  completed: boolean;
+  completed_at?: string;
+  has_record?: boolean;
+  record_status?: 'completed' | 'not_completed' | 'no_record';
+}
+
+export interface DailyProgressStats {
+  date: string;
+  total: number;
+  completed: number;
+  percentage: number;
+}
+
+export interface DailyHistoryRecord {
+  date: string; // YYYY-MM-DD
+  display_date: string; // DD-MM-YYYY
+  total: number;
+  completed: number;
+  percentage: number;
+  task_completions: Record<string, boolean | null>; // task_id -> true (done) | false (explicitly not done) | null (no record / not participated)
+}
+
+export interface AIAgentAction {
+  id: string;
+  tool_name: string;
+  summary: string;
+  status: 'success' | 'failed' | 'requires_confirmation';
+  data?: any;
+}
+
+export interface AIAgentMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+  actions?: AIAgentAction[];
+  requires_confirmation?: {
+    action: string;
+    payload: any;
+    prompt: string;
+  };
+}
+

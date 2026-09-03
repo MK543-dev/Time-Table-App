@@ -6,18 +6,23 @@ import {
   Sparkles,
   BookOpen,
   Plus,
-  Trash2
+  Trash2,
+  Edit2,
+  ShieldCheck
 } from 'lucide-react';
-import { ClassPeriod, ExamCountdown, CategoryDef } from '../types';
+import { ClassPeriod, ExamCountdown, CategoryDef, User } from '../types';
 
 interface RotatingTimetableProps {
   periods: ClassPeriod[];
   exams: ExamCountdown[];
   categories: CategoryDef[];
   currentCycle: 'A' | 'B';
+  currentUser?: User | null;
   onAddPeriod: (period: Partial<ClassPeriod>) => void;
+  onUpdatePeriod?: (period: ClassPeriod) => void;
   onDeletePeriod: (periodId: string) => void;
   onAddExam: (exam: Partial<ExamCountdown>) => void;
+  onUpdateExam?: (exam: ExamCountdown) => void;
   onDeleteExam: (examId: string) => void;
   onImportSyllabus: (syllabusText: string) => Promise<boolean>;
 }
@@ -27,30 +32,37 @@ export const RotatingTimetable: React.FC<RotatingTimetableProps> = ({
   exams,
   categories,
   currentCycle,
+  currentUser,
   onAddPeriod,
+  onUpdatePeriod,
   onDeletePeriod,
   onAddExam,
+  onUpdateExam,
   onDeleteExam,
   onImportSyllabus,
 }) => {
   const [selectedCycleView, setSelectedCycleView] = useState<'A' | 'B' | 'all'>('all');
   const [isAddingPeriod, setIsAddingPeriod] = useState(false);
+  const [editingPeriod, setEditingPeriod] = useState<ClassPeriod | null>(null);
   const [isAddingExam, setIsAddingExam] = useState(false);
+  const [editingExam, setEditingExam] = useState<ExamCountdown | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [syllabusInput, setSyllabusInput] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+
+  const isAdmin = currentUser?.role === 'admin';
 
   // Period form
   const [periodName, setPeriodName] = useState('');
   const [periodStart, setPeriodStart] = useState('09:00');
   const [periodEnd, setPeriodEnd] = useState('10:30');
   const [periodDayType, setPeriodDayType] = useState<'all' | 'A' | 'B'>('all');
-  const [periodCategory, setPeriodCategory] = useState(categories[0]?.name || 'Database Systems (DBMS)');
-  const [periodRoom, setPeriodRoom] = useState('Hall B-201');
+  const [periodCategory, setPeriodCategory] = useState(categories[0]?.name || 'Core Academic Classes');
+  const [periodRoom, setPeriodRoom] = useState('Campus Room 101');
 
   // Exam form
-  const [examSubject, setExamSubject] = useState(categories[0]?.name || 'Database Systems (DBMS)');
+  const [examSubject, setExamSubject] = useState(categories[0]?.name || 'Machine Learning (ML)');
   const [examTitle, setExamTitle] = useState('');
   const [examDate, setExamDate] = useState('2026-09-25');
   const [examTime, setExamTime] = useState('09:00');
@@ -77,17 +89,41 @@ export const RotatingTimetable: React.FC<RotatingTimetableProps> = ({
     e.preventDefault();
     if (!periodName.trim()) return;
 
-    onAddPeriod({
-      name: periodName,
-      start_time: periodStart,
-      end_time: periodEnd,
-      day_type: periodDayType,
-      default_category: periodCategory,
-      room: periodRoom,
-    });
+    if (editingPeriod && onUpdatePeriod) {
+      onUpdatePeriod({
+        ...editingPeriod,
+        name: periodName,
+        start_time: periodStart,
+        end_time: periodEnd,
+        day_type: periodDayType,
+        default_category: periodCategory,
+        room: periodRoom,
+      });
+      setEditingPeriod(null);
+    } else {
+      onAddPeriod({
+        name: periodName,
+        start_time: periodStart,
+        end_time: periodEnd,
+        day_type: periodDayType,
+        default_category: periodCategory,
+        room: periodRoom,
+      });
+    }
 
     setIsAddingPeriod(false);
     setPeriodName('');
+  };
+
+  const handleOpenEditPeriod = (period: ClassPeriod) => {
+    setEditingPeriod(period);
+    setPeriodName(period.name);
+    setPeriodStart(period.start_time);
+    setPeriodEnd(period.end_time);
+    setPeriodDayType(period.day_type);
+    setPeriodCategory(period.default_category);
+    setPeriodRoom(period.room || '');
+    setIsAddingPeriod(true);
   };
 
   const handleExamSubmit = (e: React.FormEvent) => {
@@ -95,19 +131,46 @@ export const RotatingTimetable: React.FC<RotatingTimetableProps> = ({
     if (!examTitle.trim()) return;
 
     const topics = examTopicsInput.split(',').map((t) => t.trim()).filter(Boolean);
-    onAddExam({
-      subject: examSubject,
-      title: examTitle,
-      date: examDate,
-      time: examTime,
-      weight_percent: examWeight,
-      room: examRoom,
-      topics: topics.length > 0 ? topics : ['Core Syllabus Review'],
-    });
+
+    if (editingExam && onUpdateExam) {
+      onUpdateExam({
+        ...editingExam,
+        subject: examSubject,
+        title: examTitle,
+        date: examDate,
+        time: examTime,
+        weight_percent: examWeight,
+        room: examRoom,
+        topics: topics.length > 0 ? topics : ['Core Syllabus Review'],
+      });
+      setEditingExam(null);
+    } else {
+      onAddExam({
+        subject: examSubject,
+        title: examTitle,
+        date: examDate,
+        time: examTime,
+        weight_percent: examWeight,
+        room: examRoom,
+        topics: topics.length > 0 ? topics : ['Core Syllabus Review'],
+      });
+    }
 
     setIsAddingExam(false);
     setExamTitle('');
     setExamTopicsInput('');
+  };
+
+  const handleOpenEditExam = (exam: ExamCountdown) => {
+    setEditingExam(exam);
+    setExamSubject(exam.subject);
+    setExamTitle(exam.title);
+    setExamDate(exam.date);
+    setExamTime(exam.time);
+    setExamWeight(exam.weight_percent);
+    setExamRoom(exam.room);
+    setExamTopicsInput(exam.topics.join(', '));
+    setIsAddingExam(true);
   };
 
   const handleImportSubmit = async (e: React.FormEvent) => {
@@ -246,10 +309,17 @@ export const RotatingTimetable: React.FC<RotatingTimetableProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-end pt-2">
+            <div className="flex items-center justify-end gap-1.5 pt-2">
+              <button
+                onClick={() => handleOpenEditPeriod(period)}
+                className="p-1 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/15 transition-colors"
+                title="Edit period parameters"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => onDeletePeriod(period.id)}
-                className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors opacity-0 group-hover:opacity-100"
+                className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors"
                 title="Remove period template"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -337,12 +407,22 @@ export const RotatingTimetable: React.FC<RotatingTimetableProps> = ({
 
                 <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[11px] text-slate-400">
                   <span>📍 {exam.room}</span>
-                  <button
-                    onClick={() => onDeleteExam(exam.id)}
-                    className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors opacity-0 group-hover:opacity-100"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleOpenEditExam(exam)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/15 transition-colors"
+                      title="Edit exam parameters"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onDeleteExam(exam.id)}
+                      className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors"
+                      title="Remove exam countdown"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -416,16 +496,22 @@ Midterm 1: 2026-09-20 at 10:00 AM (30% weight) covering Indexing & Transactions.
         </div>
       )}
 
-      {/* Add Period Modal */}
+      {/* Add / Edit Period Modal */}
       {isAddingPeriod && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-fadeIn">
           <div className="w-full max-w-md p-6 rounded-2xl glass-dark border border-white/10 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Clock className="w-4 h-4 text-cyan-400" />
-                <span>Add Class Period Block</span>
+                <span>{editingPeriod ? 'Edit Class Period Block' : 'Add Class Period Block'}</span>
               </h3>
-              <button onClick={() => setIsAddingPeriod(false)} className="text-xs text-slate-400 hover:text-white">
+              <button
+                onClick={() => {
+                  setIsAddingPeriod(false);
+                  setEditingPeriod(null);
+                }}
+                className="text-xs text-slate-400 hover:text-white"
+              >
                 Cancel
               </button>
             </div>
@@ -526,16 +612,22 @@ Midterm 1: 2026-09-20 at 10:00 AM (30% weight) covering Indexing & Transactions.
         </div>
       )}
 
-      {/* Add Exam Modal */}
+      {/* Add / Edit Exam Modal */}
       {isAddingExam && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-fadeIn">
           <div className="w-full max-w-md p-6 rounded-2xl glass-dark border border-white/10 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-amber-400" />
-                <span>Add Exam / Milestone Countdown</span>
+                <span>{editingExam ? 'Edit Exam / Milestone Countdown' : 'Add Exam / Milestone Countdown'}</span>
               </h3>
-              <button onClick={() => setIsAddingExam(false)} className="text-xs text-slate-400 hover:text-white">
+              <button
+                onClick={() => {
+                  setIsAddingExam(false);
+                  setEditingExam(null);
+                }}
+                className="text-xs text-slate-400 hover:text-white"
+              >
                 Cancel
               </button>
             </div>

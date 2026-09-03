@@ -21,6 +21,7 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
   const pointLightRef = useRef<THREE.PointLight | null>(null);
   const reqIdRef = useRef<number | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [webglSupported, setWebglSupported] = useState(true);
 
   const percentage = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
   const ratio = total > 0 ? Math.min(1, completed / total) : 0;
@@ -53,16 +54,29 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
     camera.position.set(0, 0, 7.2);
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
-    rendererRef.current = renderer;
+    let renderer: THREE.WebGLRenderer;
+    let trackGeo: THREE.TorusGeometry;
+    let trackMat: THREE.MeshPhysicalMaterial;
+    let progressGeo: THREE.TorusGeometry;
+    let progressMat: THREE.MeshPhysicalMaterial;
+    let particleGeo: THREE.BufferGeometry;
+    let particleMat: THREE.PointsMaterial;
 
-    container.innerHTML = '';
-    container.appendChild(renderer.domElement);
+    try {
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.25;
+      rendererRef.current = renderer;
+
+      container.innerHTML = '';
+      container.appendChild(renderer.domElement);
+    } catch {
+      setWebglSupported(false);
+      return;
+    }
 
     // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
@@ -82,8 +96,8 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
     scene.add(pointLight);
 
     // Background track torus (subtle dark glass ring)
-    const trackGeo = new THREE.TorusGeometry(2.3, 0.28, 24, 64, Math.PI * 2);
-    const trackMat = new THREE.MeshPhysicalMaterial({
+    trackGeo = new THREE.TorusGeometry(2.3, 0.28, 24, 64, Math.PI * 2);
+    trackMat = new THREE.MeshPhysicalMaterial({
       color: 0x1e293b,
       roughness: 0.2,
       metalness: 0.2,
@@ -98,9 +112,9 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
 
     // Dynamic progress torus arc
     const arcLength = Math.max(0.05, ratio * Math.PI * 2);
-    const progressGeo = new THREE.TorusGeometry(2.3, 0.32, 32, 96, arcLength);
+    progressGeo = new THREE.TorusGeometry(2.3, 0.32, 32, 96, arcLength);
     const currentColor = getGlowColor(percentage);
-    const progressMat = new THREE.MeshPhysicalMaterial({
+    progressMat = new THREE.MeshPhysicalMaterial({
       color: currentColor,
       emissive: currentColor,
       emissiveIntensity: 0.75,
@@ -116,7 +130,7 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
 
     // Floating particle dust field around the ring in cyan & accent colors
     const particleCount = 75;
-    const particleGeo = new THREE.BufferGeometry();
+    particleGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
 
@@ -135,7 +149,7 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
     particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-    const particleMat = new THREE.PointsMaterial({
+    particleMat = new THREE.PointsMaterial({
       size: 0.08,
       vertexColors: true,
       transparent: true,
@@ -148,10 +162,11 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
     scene.add(particleGroup);
 
     // Animation Loop
-    let clock = new THREE.Clock();
-    const animate = () => {
+    const timer = new THREE.Timer();
+    const animate = (timestamp = performance.now()) => {
       reqIdRef.current = requestAnimationFrame(animate);
-      const elapsedTime = clock.getElapsedTime();
+      timer.update(timestamp);
+      const elapsedTime = timer.getElapsed();
 
       if (trackMesh) {
         trackMesh.rotation.x = Math.sin(elapsedTime * 0.5) * 0.12;
@@ -191,14 +206,14 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
     return () => {
       if (reqIdRef.current) cancelAnimationFrame(reqIdRef.current);
       resizeObserver.disconnect();
-      renderer.dispose();
-      trackGeo.dispose();
-      trackMat.dispose();
-      progressGeo.dispose();
-      progressMat.dispose();
-      particleGeo.dispose();
-      particleMat.dispose();
-      if (container.contains(renderer.domElement)) {
+      if (renderer) renderer.dispose();
+      if (trackGeo) trackGeo.dispose();
+      if (trackMat) trackMat.dispose();
+      if (progressGeo) progressGeo.dispose();
+      if (progressMat) progressMat.dispose();
+      if (particleGeo) particleGeo.dispose();
+      if (particleMat) particleMat.dispose();
+      if (renderer && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
     };
@@ -276,9 +291,36 @@ export const ThreeProgressRing: React.FC<ThreeProgressRingProps> = ({
         </span>
       </div>
 
-      {/* 3D Canvas Container */}
+      {/* 3D Canvas Container / Fallback SVG */}
       <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center">
-        <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+        {webglSupported ? (
+          <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+        ) : (
+          <svg className="w-56 h-56 transform -rotate-90" viewBox="0 0 120 120">
+            <circle
+              cx="60"
+              cy="60"
+              r="50"
+              stroke="#1e293b"
+              strokeWidth="10"
+              fill="transparent"
+              className="opacity-40"
+            />
+            <circle
+              cx="60"
+              cy="60"
+              r="50"
+              stroke={getGlowColorHex(percentage)}
+              strokeWidth="10"
+              strokeDasharray={314.159}
+              strokeDashoffset={314.159 * (1 - ratio)}
+              strokeLinecap="round"
+              fill="transparent"
+              className="transition-all duration-500"
+              style={{ filter: `drop-shadow(0 0 10px ${getGlowColorHex(percentage)})` }}
+            />
+          </svg>
+        )}
 
         {/* Central Overlay HUD Stat */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
