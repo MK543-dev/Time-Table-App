@@ -433,10 +433,11 @@ export const INITIAL_AI_SUMMARY: AISummary = {
   },
 };
 
-// Permanent 10 Recurring Daily Tasks (Source of Truth from provided spreadsheet image)
+// Permanent 10 Recurring Daily Tasks (Source of Truth from provided spreadsheet image for MK / usr_1)
 export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   {
     id: 'dt_1',
+    user_id: 'usr_1',
     order: 1,
     title: 'Wake-Up',
     time_slot: '5:00 - 5:30',
@@ -447,6 +448,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_2',
+    user_id: 'usr_1',
     order: 2,
     title: "Qur'an Reading",
     time_slot: '15mins',
@@ -457,6 +459,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_3',
+    user_id: 'usr_1',
     order: 3,
     title: 'Walking',
     time_slot: '1-1/2 hr',
@@ -467,6 +470,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_4',
+    user_id: 'usr_1',
     order: 4,
     title: 'Rgular-class',
     time_slot: '10:30 - 1:31',
@@ -477,6 +481,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_5',
+    user_id: 'usr_1',
     order: 5,
     title: 'ML',
     time_slot: '1hr/30mins',
@@ -487,6 +492,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_6',
+    user_id: 'usr_1',
     order: 6,
     title: 'Data Science Video',
     time_slot: '15-30mins',
@@ -497,6 +503,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_7',
+    user_id: 'usr_1',
     order: 7,
     title: 'PytonPractice',
     time_slot: '2-3hr',
@@ -507,6 +514,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_8',
+    user_id: 'usr_1',
     order: 8,
     title: 'SQL',
     time_slot: '30mins',
@@ -517,6 +525,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_9',
+    user_id: 'usr_1',
     order: 9,
     title: 'Communication',
     time_slot: '30min',
@@ -527,6 +536,7 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
   },
   {
     id: 'dt_10',
+    user_id: 'usr_1',
     order: 10,
     title: 'DSA',
     time_slot: '30mins',
@@ -536,6 +546,134 @@ export const PERMANENT_DAILY_TASKS: DailyTaskDefinition[] = [
     icon: 'Layers',
   },
 ];
+
+// Default 12 Routine Tasks seeded for brand-new accounts on first login
+export const DEFAULT_NEW_USER_ROUTINE: Omit<DailyTaskDefinition, 'id' | 'order' | 'user_id'>[] = [
+  {
+    title: 'Wake Up',
+    time_slot: '06:00 - 06:30',
+    duration_minutes: 30,
+    category: 'Morning Routine & Fitness',
+    notes: 'Early morning wake-up, stretch, and hydrate',
+    icon: 'Sun',
+  },
+  {
+    title: 'Morning Exercise',
+    time_slot: '06:30 - 07:15',
+    duration_minutes: 45,
+    category: 'Morning Routine & Fitness',
+    notes: 'Morning workout, cardio, or stretching',
+    icon: 'Activity',
+  },
+  {
+    title: 'Breakfast',
+    time_slot: '07:30 - 08:00',
+    duration_minutes: 30,
+    category: 'Morning Routine & Fitness',
+    notes: 'Nutritious breakfast and hydration',
+    icon: 'Coffee',
+  },
+  {
+    title: 'Study / Learning',
+    time_slot: '08:30 - 11:30',
+    duration_minutes: 180,
+    category: 'Core Academic Classes',
+    notes: 'Focused study, coursework, or technical learning',
+    icon: 'BookOpen',
+  },
+  {
+    title: 'Lunch',
+    time_slot: '12:30 - 01:15',
+    duration_minutes: 45,
+    category: 'General',
+    notes: 'Midday meal and healthy recharge',
+    icon: 'Coffee',
+  },
+  {
+    title: 'Work / College',
+    time_slot: '01:30 - 05:00',
+    duration_minutes: 210,
+    category: 'Core Academic Classes',
+    notes: 'Lectures, college coursework, or work sessions',
+    icon: 'GraduationCap',
+  },
+  {
+    title: 'Evening Break',
+    time_slot: '05:00 - 05:30',
+    duration_minutes: 30,
+    category: 'General',
+    notes: 'Unwind and step away from screens',
+    icon: 'Zap',
+  },
+  {
+    title: 'Exercise / Walk',
+    time_slot: '05:30 - 06:30',
+    duration_minutes: 60,
+    category: 'Morning Routine & Fitness',
+    notes: 'Evening walk, outdoor jog, or workout',
+    icon: 'Dumbbell',
+  },
+  {
+    title: 'Dinner',
+    time_slot: '07:30 - 08:15',
+    duration_minutes: 45,
+    category: 'General',
+    notes: 'Evening dinner and mindful downtime',
+    icon: 'Coffee',
+  },
+  {
+    title: "Review Today's Work",
+    time_slot: '08:30 - 09:15',
+    duration_minutes: 45,
+    category: 'Deep Work & Focus',
+    notes: "Review accomplishments, log completed items, and organize notes",
+    icon: 'Layers',
+  },
+  {
+    title: 'Prepare for Tomorrow',
+    time_slot: '09:15 - 09:45',
+    duration_minutes: 30,
+    category: 'Deep Work & Focus',
+    notes: 'Organize schedule, prioritize top tasks, and set alarms',
+    icon: 'Clock',
+  },
+  {
+    title: 'Sleep',
+    time_slot: '10:30 - 06:00',
+    duration_minutes: 450,
+    category: 'General',
+    notes: 'Restful sleep for complete recovery',
+    icon: 'Sun',
+  },
+];
+
+export function createDefaultNewUserTasks(userId: string): DailyTaskDefinition[] {
+  return DEFAULT_NEW_USER_ROUTINE.map((item, idx) => ({
+    id: `dt_${userId}_${idx + 1}`,
+    user_id: userId,
+    order: idx + 1,
+    title: item.title,
+    time_slot: item.time_slot,
+    duration_minutes: item.duration_minutes,
+    category: item.category,
+    notes: item.notes,
+    icon: item.icon,
+  }));
+}
+
+export function isDeveloperUser(userId?: string | null, email?: string | null): boolean {
+  if (!userId && !email) return true; // Default developer link visitor
+  const idNorm = (userId || '').trim().toLowerCase();
+  const emailNorm = (email || '').trim().toLowerCase();
+  return (
+    idNorm === 'usr_1' ||
+    idNorm === 'usr_admin' ||
+    idNorm === 'admin' ||
+    idNorm.includes('admin') ||
+    idNorm.includes('dev') ||
+    emailNorm === '218r1a0543@gmail.com'
+  );
+}
 
 // Initial Historical Daily Task Completions corresponding to user participation records (from 30-08-2026 only)
 export const INITIAL_DAILY_COMPLETIONS: DailyTaskCompletion[] = [

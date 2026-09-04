@@ -44,6 +44,7 @@ app.get('/api/health', (req, res) => {
 
 interface ServerDailyTaskDef {
   id: string;
+  user_id: string;
   order: number;
   title: string;
   time_slot: string;
@@ -62,21 +63,124 @@ interface ServerDailyCompletion {
   completed_at?: string;
 }
 
-// Permanent recurring tasks database (mutable in memory, defaults to the 10 tasks)
+// Permanent recurring tasks database (scoped by user_id, defaults to MK's 10 tasks for usr_1)
 let DB_DAILY_TASKS: ServerDailyTaskDef[] = [
-  { id: 'dt_1', order: 1, title: 'Wake-Up', time_slot: '5:00 - 5:30', duration_minutes: 30, category: 'Morning Routine & Fitness', notes: 'Early morning wake-up and hydration (5:00 - 5:30)', icon: 'Sun' },
-  { id: 'dt_2', order: 2, title: "Qur'an Reading", time_slot: '15mins', duration_minutes: 15, category: "Spiritual & Qur'an", notes: "Daily Qur'an recitation and spiritual focus (15 mins)", icon: 'BookOpen' },
-  { id: 'dt_3', order: 3, title: 'Walking', time_slot: '1-1/2 hr', duration_minutes: 90, category: 'Morning Routine & Fitness', notes: 'Morning walking exercise and fresh air (1-1/2 hr)', icon: 'Activity' },
-  { id: 'dt_4', order: 4, title: 'Rgular-class', time_slot: '10:30 - 1:31', duration_minutes: 181, category: 'Core Academic Classes', notes: 'University & department regular lecture blocks (10:30 - 1:31)', icon: 'GraduationCap' },
-  { id: 'dt_5', order: 5, title: 'ML', time_slot: '1hr/30mins', duration_minutes: 90, category: 'Machine Learning (ML)', notes: 'Machine Learning model architecture & concepts (1hr/30mins)', icon: 'Cpu' },
-  { id: 'dt_6', order: 6, title: 'Data Science Video', time_slot: '15-30mins', duration_minutes: 30, category: 'Data Science (DS)', notes: 'Data Science technical lecture or conceptual video (15-30mins)', icon: 'Video' },
-  { id: 'dt_7', order: 7, title: 'PytonPractice', time_slot: '2-3hr', duration_minutes: 150, category: 'Python Programming', notes: 'Hands-on Python coding exercises & scripts (2-3hr)', icon: 'Code' },
-  { id: 'dt_8', order: 8, title: 'SQL', time_slot: '30mins', duration_minutes: 30, category: 'SQL & Databases', notes: 'Relational queries, schema design & practice (30mins)', icon: 'Database' },
-  { id: 'dt_9', order: 9, title: 'Communication', time_slot: '30min', duration_minutes: 30, category: 'Communication Skills', notes: 'Verbal, professional & presentation skills development (30min)', icon: 'MessageSquare' },
-  { id: 'dt_10', order: 10, title: 'DSA', time_slot: '30mins', duration_minutes: 30, category: 'DSA & Problem Solving', notes: 'Data Structures and Algorithms LeetCode / problem solving (30mins)', icon: 'Layers' },
+  { id: 'dt_1', user_id: 'usr_1', order: 1, title: 'Wake-Up', time_slot: '5:00 - 5:30', duration_minutes: 30, category: 'Morning Routine & Fitness', notes: 'Early morning wake-up and hydration (5:00 - 5:30)', icon: 'Sun' },
+  { id: 'dt_2', user_id: 'usr_1', order: 2, title: "Qur'an Reading", time_slot: '15mins', duration_minutes: 15, category: "Spiritual & Qur'an", notes: "Daily Qur'an recitation and spiritual focus (15 mins)", icon: 'BookOpen' },
+  { id: 'dt_3', user_id: 'usr_1', order: 3, title: 'Walking', time_slot: '1-1/2 hr', duration_minutes: 90, category: 'Morning Routine & Fitness', notes: 'Morning walking exercise and fresh air (1-1/2 hr)', icon: 'Activity' },
+  { id: 'dt_4', user_id: 'usr_1', order: 4, title: 'Rgular-class', time_slot: '10:30 - 1:31', duration_minutes: 181, category: 'Core Academic Classes', notes: 'University & department regular lecture blocks (10:30 - 1:31)', icon: 'GraduationCap' },
+  { id: 'dt_5', user_id: 'usr_1', order: 5, title: 'ML', time_slot: '1hr/30mins', duration_minutes: 90, category: 'Machine Learning (ML)', notes: 'Machine Learning model architecture & concepts (1hr/30mins)', icon: 'Cpu' },
+  { id: 'dt_6', user_id: 'usr_1', order: 6, title: 'Data Science Video', time_slot: '15-30mins', duration_minutes: 30, category: 'Data Science (DS)', notes: 'Data Science technical lecture or conceptual video (15-30mins)', icon: 'Video' },
+  { id: 'dt_7', user_id: 'usr_1', order: 7, title: 'PytonPractice', time_slot: '2-3hr', duration_minutes: 150, category: 'Python Programming', notes: 'Hands-on Python coding exercises & scripts (2-3hr)', icon: 'Code' },
+  { id: 'dt_8', user_id: 'usr_1', order: 8, title: 'SQL', time_slot: '30mins', duration_minutes: 30, category: 'SQL & Databases', notes: 'Relational queries, schema design & practice (30mins)', icon: 'Database' },
+  { id: 'dt_9', user_id: 'usr_1', order: 9, title: 'Communication', time_slot: '30min', duration_minutes: 30, category: 'Communication Skills', notes: 'Verbal, professional & presentation skills development (30min)', icon: 'MessageSquare' },
+  { id: 'dt_10', user_id: 'usr_1', order: 10, title: 'DSA', time_slot: '30mins', duration_minutes: 30, category: 'DSA & Problem Solving', notes: 'Data Structures and Algorithms LeetCode / problem solving (30mins)', icon: 'Layers' },
 ];
 
 const DEFAULT_DAILY_TASKS_BACKUP: ServerDailyTaskDef[] = JSON.parse(JSON.stringify(DB_DAILY_TASKS));
+
+// Default 12 Routine Tasks seeded for brand-new accounts on first login
+const DEFAULT_NEW_USER_ROUTINE: Omit<ServerDailyTaskDef, 'id' | 'order' | 'user_id'>[] = [
+  {
+    title: 'Wake Up',
+    time_slot: '06:00 - 06:30',
+    duration_minutes: 30,
+    category: 'Morning Routine & Fitness',
+    notes: 'Early morning wake-up, stretch, and hydrate',
+    icon: 'Sun',
+  },
+  {
+    title: 'Morning Exercise',
+    time_slot: '06:30 - 07:15',
+    duration_minutes: 45,
+    category: 'Morning Routine & Fitness',
+    notes: 'Morning workout, cardio, or stretching',
+    icon: 'Activity',
+  },
+  {
+    title: 'Breakfast',
+    time_slot: '07:30 - 08:00',
+    duration_minutes: 30,
+    category: 'Morning Routine & Fitness',
+    notes: 'Nutritious breakfast and hydration',
+    icon: 'Coffee',
+  },
+  {
+    title: 'Study / Learning',
+    time_slot: '08:30 - 11:30',
+    duration_minutes: 180,
+    category: 'Core Academic Classes',
+    notes: 'Focused study, coursework, or technical learning',
+    icon: 'BookOpen',
+  },
+  {
+    title: 'Lunch',
+    time_slot: '12:30 - 01:15',
+    duration_minutes: 45,
+    category: 'General',
+    notes: 'Midday meal and healthy recharge',
+    icon: 'Coffee',
+  },
+  {
+    title: 'Work / College',
+    time_slot: '01:30 - 05:00',
+    duration_minutes: 210,
+    category: 'Core Academic Classes',
+    notes: 'Lectures, college coursework, or work sessions',
+    icon: 'GraduationCap',
+  },
+  {
+    title: 'Evening Break',
+    time_slot: '05:00 - 05:30',
+    duration_minutes: 30,
+    category: 'General',
+    notes: 'Unwind and step away from screens',
+    icon: 'Zap',
+  },
+  {
+    title: 'Exercise / Walk',
+    time_slot: '05:30 - 06:30',
+    duration_minutes: 60,
+    category: 'Morning Routine & Fitness',
+    notes: 'Evening walk, outdoor jog, or workout',
+    icon: 'Dumbbell',
+  },
+  {
+    title: 'Dinner',
+    time_slot: '07:30 - 08:15',
+    duration_minutes: 45,
+    category: 'General',
+    notes: 'Evening dinner and mindful downtime',
+    icon: 'Coffee',
+  },
+  {
+    title: "Review Today's Work",
+    time_slot: '08:30 - 09:15',
+    duration_minutes: 45,
+    category: 'Deep Work & Focus',
+    notes: "Review accomplishments, log completed items, and organize notes",
+    icon: 'Layers',
+  },
+  {
+    title: 'Prepare for Tomorrow',
+    time_slot: '09:15 - 09:45',
+    duration_minutes: 30,
+    category: 'Deep Work & Focus',
+    notes: 'Organize schedule, prioritize top tasks, and set alarms',
+    icon: 'Clock',
+  },
+  {
+    title: 'Sleep',
+    time_slot: '10:30 - 06:00',
+    duration_minutes: 450,
+    category: 'General',
+    notes: 'Restful sleep for complete recovery',
+    icon: 'Sun',
+  },
+];
+
+// Set of user IDs that have been seeded or visited, preventing re-seeding
+let SEEDED_USER_IDS: Set<string> = new Set(['usr_1']);
 
 // Historical completion store (pre-populated with participation records from 30-08-2026 only)
 let DB_DAILY_COMPLETIONS: ServerDailyCompletion[] = [
@@ -155,6 +259,13 @@ let DB_USERS: ServerUser[] = [
 let USER_TASK_DEFS: Record<string, ServerDailyTaskDef[]> = {};
 let USER_STREAKS: Record<string, number> = {};
 
+export interface ServerSessionData {
+  user_id: string;
+  created_at: number;
+  expires_at: number;
+}
+const DB_SESSIONS = new Map<string, ServerSessionData>();
+
 function initDataPersistence() {
   try {
     if (!fs.existsSync(STORAGE_DIR)) {
@@ -169,19 +280,81 @@ function initDataPersistence() {
       const raw = fs.readFileSync(targetFile, 'utf-8');
       const data = JSON.parse(raw);
       if (Array.isArray(data.tasks) && data.tasks.length > 0) {
-        DB_DAILY_TASKS = data.tasks;
+        // One-time migration: ensure all tasks have a user_id.
+        // Legacy tasks without user_id belong to MK (usr_1).
+        // Filter out any generic tasks mistakenly attached to developer or admin accounts
+        const genericTitles = new Set([
+          'Wake Up', 'Morning Exercise', 'Breakfast', 'Study / Learning', 'Lunch',
+          'Work / College', 'Evening Break', 'Exercise / Walk', 'Dinner',
+          'Review Today\'s Work', 'Prepare for Tomorrow', 'Sleep'
+        ]);
+
+        DB_DAILY_TASKS = data.tasks
+          .filter((t: any) => {
+            const uid = (t.user_id || 'usr_1').toLowerCase();
+            if ((uid === 'usr_1' || uid === 'usr_admin' || uid === 'admin' || uid.includes('dev')) &&
+                (genericTitles.has(t.title) || t.id?.startsWith('dt_usr_admin_'))) {
+              return false;
+            }
+            return true;
+          })
+          .map((t: any) => ({
+            ...t,
+            user_id: t.user_id || 'usr_1',
+          }));
+
+        // Guarantee MK / developer's 10 original tasks exist
+        const hasDevTasks = DB_DAILY_TASKS.some((t) => t.user_id === 'usr_1' || t.user_id === 'usr_admin');
+        if (!hasDevTasks) {
+          DB_DAILY_TASKS.push(...DEFAULT_DAILY_TASKS_BACKUP.map((t) => ({ ...t, user_id: 'usr_1' })));
+        }
       }
       if (Array.isArray(data.completions)) {
-        DB_DAILY_COMPLETIONS = data.completions;
+        // Legacy completions without user_id belong to MK (usr_1)
+        DB_DAILY_COMPLETIONS = data.completions.map((c: any) => ({
+          ...c,
+          user_id: c.user_id || 'usr_1',
+        }));
       }
       if (Array.isArray(data.users) && data.users.length > 0) {
         DB_USERS = data.users;
       }
+      if (Array.isArray(data.seeded_users)) {
+        data.seeded_users.forEach((uid: string) => {
+          if (uid) SEEDED_USER_IDS.add(uid);
+        });
+      }
+      // Populate SEEDED_USER_IDS for all users who already have tasks
+      DB_DAILY_TASKS.forEach((t) => {
+        if (t.user_id) SEEDED_USER_IDS.add(t.user_id);
+      });
+      // MK (usr_1) and developer/admin must always be marked as seeded
+      SEEDED_USER_IDS.add('usr_1');
+      SEEDED_USER_IDS.add('usr_admin');
+
       if (data.user_tasks && typeof data.user_tasks === 'object') {
         USER_TASK_DEFS = data.user_tasks;
+        // Merge any user_tasks into DB_DAILY_TASKS if missing
+        Object.entries(USER_TASK_DEFS).forEach(([uid, uTasks]) => {
+          if (Array.isArray(uTasks)) {
+            SEEDED_USER_IDS.add(uid);
+            uTasks.forEach((ut) => {
+              if (!DB_DAILY_TASKS.some((t) => t.id === ut.id)) {
+                DB_DAILY_TASKS.push({ ...ut, user_id: uid });
+              }
+            });
+          }
+        });
       }
       if (data.streaks && typeof data.streaks === 'object') {
         USER_STREAKS = data.streaks;
+      }
+      if (Array.isArray(data.sessions)) {
+        data.sessions.forEach(([tok, sess]: [string, ServerSessionData]) => {
+          if (tok && sess && sess.user_id && sess.expires_at > Date.now()) {
+            DB_SESSIONS.set(tok, sess);
+          }
+        });
       }
       console.log(`[Storage] Restored ${DB_DAILY_TASKS.length} tasks, ${DB_DAILY_COMPLETIONS.length} completions, and ${DB_USERS.length} users from disk.`);
     }
@@ -199,8 +372,10 @@ function persistDataToDisk() {
       tasks: DB_DAILY_TASKS,
       completions: DB_DAILY_COMPLETIONS,
       users: DB_USERS,
+      seeded_users: Array.from(SEEDED_USER_IDS),
       user_tasks: USER_TASK_DEFS,
       streaks: USER_STREAKS,
+      sessions: Array.from(DB_SESSIONS.entries()),
     };
     fs.writeFileSync(STORAGE_FILE, JSON.stringify(payload, null, 2), 'utf-8');
   } catch (err) {
@@ -210,18 +385,134 @@ function persistDataToDisk() {
 
 initDataPersistence();
 
-function getUserTaskDefinitions(userId: string): ServerDailyTaskDef[] {
-  if (USER_TASK_DEFS[userId] && USER_TASK_DEFS[userId].length > 0) {
-    return USER_TASK_DEFS[userId];
+// Helper to determine if a user ID or email belongs to the developer / institutional admin
+function isDeveloperUser(userId?: string | null, email?: string | null): boolean {
+  if (!userId && !email) return false; // Prevent unauthenticated requests from claiming developer status
+  const idNorm = (userId || '').trim().toLowerCase();
+  const emailNorm = (email || '').trim().toLowerCase();
+  if (
+    idNorm === 'usr_1' ||
+    idNorm === 'usr_admin' ||
+    idNorm === 'admin' ||
+    idNorm.includes('admin') ||
+    idNorm.includes('dev') ||
+    emailNorm === '218r1a0543@gmail.com'
+  ) {
+    return true;
   }
-  return DB_DAILY_TASKS;
+  const u = DB_USERS.find((user) => user.id === userId || user.email?.toLowerCase() === '218r1a0543@gmail.com');
+  if (u && (u.email?.toLowerCase() === '218r1a0543@gmail.com' || u.role === 'admin')) {
+    return true;
+  }
+  return false;
+}
+
+// Helper to extract user_id from authorization header, query, body, or headers
+function extractUserId(req: express.Request, fallback = ''): string {
+  // 1. Check Authorization Bearer token or x-session-token header first
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const sessionToken = (bearerToken || (req.headers['x-session-token'] as string))?.trim();
+  if (sessionToken && DB_SESSIONS.has(sessionToken)) {
+    const sess = DB_SESSIONS.get(sessionToken)!;
+    if (Date.now() < sess.expires_at) {
+      return sess.user_id;
+    } else {
+      DB_SESSIONS.delete(sessionToken);
+      persistDataToDisk();
+    }
+  }
+
+  // 2. Check explicit query, body, or custom header
+  const queryUser = (req.query?.user_id as string) || (req.query?.userId as string);
+  const bodyUser = req.body?.user_id || req.body?.userId;
+  const headerUser = (req.headers['x-user-id'] as string) || (req.headers['x-userid'] as string);
+  return (queryUser || bodyUser || headerUser || fallback).trim();
+}
+
+// Atomically seed the 12 default routine tasks for a user if they have never been seeded
+function seedUserDefaultRoutineIfNeeded(userId: string): ServerDailyTaskDef[] {
+  if (!userId || isDeveloperUser(userId)) {
+    // DEVELOPER / ADMIN ACCOUNTS MUST NEVER BE SEEDED WITH GENERIC ROUTINE
+    return getUserTaskDefinitions(userId);
+  }
+  // If user has already been seeded or visited, do not re-seed (respecting intentional user deletions)
+  if (SEEDED_USER_IDS.has(userId)) {
+    return DB_DAILY_TASKS.filter((t) => t.user_id === userId);
+  }
+
+  // If user already has >= 1 task in the database, mark as seeded and do not overwrite
+  const existing = DB_DAILY_TASKS.filter((t) => t.user_id === userId);
+  if (existing.length > 0) {
+    SEEDED_USER_IDS.add(userId);
+    persistDataToDisk();
+    return existing;
+  }
+
+  // Seed default 12 routine tasks for new user
+  SEEDED_USER_IDS.add(userId);
+  const newTasks: ServerDailyTaskDef[] = DEFAULT_NEW_USER_ROUTINE.map((item, idx) => ({
+    id: `dt_${userId}_${idx + 1}`,
+    user_id: userId,
+    order: idx + 1,
+    title: item.title,
+    time_slot: item.time_slot,
+    duration_minutes: item.duration_minutes,
+    category: item.category,
+    notes: item.notes,
+    icon: item.icon,
+  }));
+
+  DB_DAILY_TASKS.push(...newTasks);
+  persistDataToDisk();
+  console.log(`[DailyTasks] Seeded 12 default routine tasks for new user: ${userId}`);
+  return newTasks;
+}
+
+function getUserTaskDefinitions(userId: string): ServerDailyTaskDef[] {
+  if (!userId) {
+    return [];
+  }
+  if (isDeveloperUser(userId)) {
+    // Return developer tasks (the 10 original routine items)
+    const genericTitles = new Set([
+      'Wake Up', 'Morning Exercise', 'Breakfast', 'Study / Learning', 'Lunch',
+      'Work / College', 'Evening Break', 'Exercise / Walk', 'Dinner',
+      'Review Today\'s Work', 'Prepare for Tomorrow', 'Sleep'
+    ]);
+    const devTasks = DB_DAILY_TASKS.filter(
+      (t) => (t.user_id === 'usr_1' || t.user_id === 'usr_admin') &&
+             !genericTitles.has(t.title) &&
+             !t.id?.startsWith('dt_usr_admin_')
+    );
+    if (devTasks.length > 0) {
+      return devTasks;
+    }
+    // Restore the permanent 10 developer tasks!
+    const restored = DEFAULT_DAILY_TASKS_BACKUP.map((t) => ({ ...t, user_id: 'usr_1' }));
+    DB_DAILY_TASKS = DB_DAILY_TASKS.filter((t) => !isDeveloperUser(t.user_id)).concat(restored);
+    SEEDED_USER_IDS.add('usr_1');
+    SEEDED_USER_IDS.add('usr_admin');
+    persistDataToDisk();
+    return restored;
+  }
+
+  // Regular user (student / new user)
+  if (!SEEDED_USER_IDS.has(userId)) {
+    return seedUserDefaultRoutineIfNeeded(userId);
+  }
+  return DB_DAILY_TASKS.filter((t) => t.user_id === userId);
 }
 
 function getDailyTasksWithStatus(userId: string, dateStr: string) {
   const defs = getUserTaskDefinitions(userId);
+  const isDev = isDeveloperUser(userId);
   return defs.map((def) => {
     const comp = DB_DAILY_COMPLETIONS.find(
-      (c) => (c.user_id === userId || !c.user_id) && c.task_id === def.id && c.date === dateStr
+      (c) =>
+        c.task_id === def.id &&
+        c.date === dateStr &&
+        (c.user_id === userId || (isDev && isDeveloperUser(c.user_id)))
     );
     return {
       ...def,
@@ -246,6 +537,10 @@ function calculateProgress(tasksWithStatus: { completed: boolean }[]) {
 function calculateUserStreak(userId: string): { streak: number; isTodayCompleted: boolean } {
   if (USER_STREAKS[userId] !== undefined) {
     return { streak: USER_STREAKS[userId], isTodayCompleted: false };
+  }
+  const isDev = isDeveloperUser(userId);
+  if (isDev && USER_STREAKS['usr_1'] !== undefined) {
+    return { streak: USER_STREAKS['usr_1'], isTodayCompleted: false };
   }
 
   const today = new Date();
@@ -298,7 +593,11 @@ function calculateUserStreak(userId: string): { streak: number; isTodayCompleted
 
 // Handler functions for both /daily-tasks and /api/daily-tasks
 const handleGetDailyTasks = (req: express.Request, res: express.Response) => {
-  const userId = (req.query.user_id as string) || 'usr_1';
+  const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing user_id or valid session.' });
+  }
+  const isDev = isDeveloperUser(userId);
   const dateStr = (req.query.date as string) || new Date().toISOString().split('T')[0];
 
   const defs = getUserTaskDefinitions(userId);
@@ -306,7 +605,7 @@ const handleGetDailyTasks = (req: express.Request, res: express.Response) => {
   const progress = calculateProgress(tasksWithStatus);
   const streakInfo = calculateUserStreak(userId);
   const actualCompletions = DB_DAILY_COMPLETIONS.filter(
-    (c) => (c.user_id === userId || !c.user_id) && c.date === dateStr
+    (c) => (c.user_id === userId || (isDev && isDeveloperUser(c.user_id))) && c.date === dateStr
   );
 
   res.json({
@@ -327,11 +626,12 @@ const handleGetDailyTasks = (req: express.Request, res: express.Response) => {
 
 const handleCompleteDailyTask = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
-  const userId = req.body.user_id || (req.query.user_id as string) || 'usr_1';
-  const dateStr = req.body.date || (req.query.date as string) || new Date().toISOString().split('T')[0];
+  const userId = extractUserId(req);
+  const isDev = isDeveloperUser(userId);
+  const dateStr = (req.body?.date || req.query?.date || new Date().toISOString().split('T')[0]) as string;
 
   let record = DB_DAILY_COMPLETIONS.find(
-    (c) => (c.user_id === userId || !c.user_id) && c.task_id === taskId && c.date === dateStr
+    (c) => (c.user_id === userId || (isDev && isDeveloperUser(c.user_id))) && c.task_id === taskId && c.date === dateStr
   );
 
   if (record) {
@@ -340,7 +640,7 @@ const handleCompleteDailyTask = (req: express.Request, res: express.Response) =>
   } else {
     record = {
       id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      user_id: userId,
+      user_id: isDev ? 'usr_1' : userId,
       task_id: taskId,
       date: dateStr,
       completed: true,
@@ -371,11 +671,12 @@ const handleCompleteDailyTask = (req: express.Request, res: express.Response) =>
 
 const handleUncompleteDailyTask = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
-  const userId = req.body.user_id || (req.query.user_id as string) || 'usr_1';
-  const dateStr = req.body.date || (req.query.date as string) || new Date().toISOString().split('T')[0];
+  const userId = extractUserId(req);
+  const isDev = isDeveloperUser(userId);
+  const dateStr = (req.body?.date || req.query?.date || new Date().toISOString().split('T')[0]) as string;
 
   let record = DB_DAILY_COMPLETIONS.find(
-    (c) => (c.user_id === userId || !c.user_id) && c.task_id === taskId && c.date === dateStr
+    (c) => (c.user_id === userId || (isDev && isDeveloperUser(c.user_id))) && c.task_id === taskId && c.date === dateStr
   );
 
   if (record) {
@@ -384,7 +685,7 @@ const handleUncompleteDailyTask = (req: express.Request, res: express.Response) 
   } else {
     record = {
       id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      user_id: userId,
+      user_id: isDev ? 'usr_1' : userId,
       task_id: taskId,
       date: dateStr,
       completed: false,
@@ -414,11 +715,12 @@ const handleUncompleteDailyTask = (req: express.Request, res: express.Response) 
 
 const handleToggleDailyTask = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
-  const userId = req.body.user_id || (req.query.user_id as string) || 'usr_1';
-  const dateStr = req.body.date || (req.query.date as string) || new Date().toISOString().split('T')[0];
+  const userId = extractUserId(req);
+  const isDev = isDeveloperUser(userId);
+  const dateStr = (req.body?.date || req.query?.date || new Date().toISOString().split('T')[0]) as string;
 
   let record = DB_DAILY_COMPLETIONS.find(
-    (c) => (c.user_id === userId || !c.user_id) && c.task_id === taskId && c.date === dateStr
+    (c) => (c.user_id === userId || (isDev && isDeveloperUser(c.user_id))) && c.task_id === taskId && c.date === dateStr
   );
 
   if (record) {
@@ -427,7 +729,7 @@ const handleToggleDailyTask = (req: express.Request, res: express.Response) => {
   } else {
     record = {
       id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      user_id: userId,
+      user_id: isDev ? 'usr_1' : userId,
       task_id: taskId,
       date: dateStr,
       completed: true,
@@ -456,7 +758,10 @@ const handleToggleDailyTask = (req: express.Request, res: express.Response) => {
 };
 
 const handleGetDailyProgress = (req: express.Request, res: express.Response) => {
-  const userId = (req.query.user_id as string) || 'usr_1';
+  const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing user_id or valid session.' });
+  }
   const dateStr = (req.query.date as string) || new Date().toISOString().split('T')[0];
 
   const tasksWithStatus = getDailyTasksWithStatus(userId, dateStr);
@@ -472,10 +777,13 @@ const handleGetDailyProgress = (req: express.Request, res: express.Response) => 
 };
 
 const handleGetDailyHistory = (req: express.Request, res: express.Response) => {
-  const userId = (req.query.user_id as string) || 'usr_1';
+  const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing user_id or valid session.' });
+  }
+  const isDev = isDeveloperUser(userId);
   const defs = getUserTaskDefinitions(userId);
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
 
   // Provide at least the past 30 days plus any older recorded activity
   const defaultPastDays = 30;
@@ -484,11 +792,13 @@ const handleGetDailyHistory = (req: express.Request, res: express.Response) => {
   let minDateStr = earliestDateObj.toISOString().split('T')[0];
 
   // If user has completions older than 30 days, extend window
-  DB_DAILY_COMPLETIONS.filter((c) => (c.user_id === userId || !c.user_id) && c.date).forEach((c) => {
-    if (c.date < minDateStr) {
-      minDateStr = c.date;
-    }
-  });
+  DB_DAILY_COMPLETIONS
+    .filter((c) => (c.user_id === userId || (isDev && isDeveloperUser(c.user_id))) && c.date)
+    .forEach((c) => {
+      if (c.date < minDateStr) {
+        minDateStr = c.date;
+      }
+    });
 
   // Generate continuous list of all calendar days from today down to minDateStr (newest first)
   const allDates: string[] = [];
@@ -505,7 +815,10 @@ const handleGetDailyHistory = (req: express.Request, res: express.Response) => {
 
     defs.forEach((def) => {
       const comp = DB_DAILY_COMPLETIONS.find(
-        (c) => (c.user_id === userId || !c.user_id) && c.task_id === def.id && c.date === dStr
+        (c) =>
+          c.task_id === def.id &&
+          c.date === dStr &&
+          (c.user_id === userId || (isDev && isDeveloperUser(c.user_id)))
       );
       if (comp && comp.completed === true) {
         taskCompletions[def.id] = true;
@@ -545,13 +858,18 @@ const handleGetDailyHistory = (req: express.Request, res: express.Response) => {
 
 // Direct cell toggle in Spreadsheet History Matrix supporting tri-state (true, false, null)
 const handleToggleHistoryCell = (req: express.Request, res: express.Response) => {
-  const { date, task_id, user_id = 'usr_1', completed, action } = req.body;
+  const { date, task_id, completed, action } = req.body;
+  const user_id = extractUserId(req);
+  const isDev = isDeveloperUser(user_id);
   if (!date || !task_id) {
     return res.status(400).json({ error: 'Date and task_id are required' });
   }
 
   const recordIndex = DB_DAILY_COMPLETIONS.findIndex(
-    (c) => (c.user_id === user_id || !c.user_id) && c.task_id === task_id && c.date === date
+    (c) =>
+      (c.user_id === user_id || (isDev && isDeveloperUser(c.user_id))) &&
+      c.task_id === task_id &&
+      c.date === date
   );
 
   let newStatus: boolean | null = null;
@@ -571,7 +889,7 @@ const handleToggleHistoryCell = (req: express.Request, res: express.Response) =>
     } else {
       DB_DAILY_COMPLETIONS.push({
         id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        user_id,
+        user_id: isDev ? 'usr_1' : user_id,
         task_id,
         date,
         completed: newStatus,
@@ -587,7 +905,7 @@ const handleToggleHistoryCell = (req: express.Request, res: express.Response) =>
       newStatus = true;
       DB_DAILY_COMPLETIONS.push({
         id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        user_id,
+        user_id: isDev ? 'usr_1' : user_id,
         task_id,
         date,
         completed: true,
@@ -623,14 +941,16 @@ const handleToggleHistoryCell = (req: express.Request, res: express.Response) =>
 };
 
 const handleBatchResetDate = (req: express.Request, res: express.Response) => {
-  const { date, user_id = 'usr_1' } = req.body;
+  const { date } = req.body;
+  const user_id = extractUserId(req);
+  const isDev = isDeveloperUser(user_id);
   if (!date) {
     return res.status(400).json({ error: 'Date is required' });
   }
 
   for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
     const c = DB_DAILY_COMPLETIONS[i];
-    if ((c.user_id === user_id || !c.user_id) && c.date === date) {
+    if ((c.user_id === user_id || (isDev && isDeveloperUser(c.user_id))) && c.date === date) {
       DB_DAILY_COMPLETIONS.splice(i, 1);
     }
   }
@@ -650,7 +970,9 @@ const handleBatchResetDate = (req: express.Request, res: express.Response) => {
 };
 
 const handleBatchUpdateDate = (req: express.Request, res: express.Response) => {
-  const { date, user_id = 'usr_1', completions = {} } = req.body;
+  const { date, completions = {} } = req.body;
+  const user_id = extractUserId(req);
+  const isDev = isDeveloperUser(user_id);
   if (!date) {
     return res.status(400).json({ error: 'Date is required' });
   }
@@ -659,7 +981,10 @@ const handleBatchUpdateDate = (req: express.Request, res: express.Response) => {
   Object.keys(completions).forEach((taskId) => {
     const isCompleted = Boolean(completions[taskId]);
     let record = DB_DAILY_COMPLETIONS.find(
-      (c) => (c.user_id === user_id || !c.user_id) && c.task_id === taskId && c.date === date
+      (c) =>
+        (c.user_id === user_id || (isDev && isDeveloperUser(c.user_id))) &&
+        c.task_id === taskId &&
+        c.date === date
     );
     if (record) {
       record.completed = isCompleted;
@@ -667,7 +992,7 @@ const handleBatchUpdateDate = (req: express.Request, res: express.Response) => {
     } else {
       DB_DAILY_COMPLETIONS.push({
         id: `dtc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        user_id,
+        user_id: isDev ? 'usr_1' : user_id,
         task_id: taskId,
         date,
         completed: isCompleted,
@@ -692,23 +1017,32 @@ const handleBatchUpdateDate = (req: express.Request, res: express.Response) => {
 
 // Task Definition CRUD Handlers (For Admin / User Customization)
 const handleGetTaskDefinitions = (req: express.Request, res: express.Response) => {
+  const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing user_id or valid session.' });
+  }
+  const defs = getUserTaskDefinitions(userId);
   res.json({
     success: true,
-    definitions: DB_DAILY_TASKS,
+    user_id: userId,
+    definitions: defs,
   });
 };
 
 const handleCreateTaskDefinition = (req: express.Request, res: express.Response) => {
   const { title, time_slot = '30mins', duration_minutes = 30, category = 'General', notes = '', icon = 'CheckCircle2' } = req.body;
+  const userId = extractUserId(req);
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'Task title is required' });
   }
 
   const newId = `dt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-  const nextOrder = DB_DAILY_TASKS.length > 0 ? Math.max(...DB_DAILY_TASKS.map((t) => t.order)) + 1 : 1;
+  const userDefs = getUserTaskDefinitions(userId);
+  const nextOrder = userDefs.length > 0 ? Math.max(...userDefs.map((t) => t.order)) + 1 : 1;
 
   const newDef: ServerDailyTaskDef = {
     id: newId,
+    user_id: userId,
     order: nextOrder,
     title: title.trim(),
     time_slot: time_slot.trim(),
@@ -719,21 +1053,23 @@ const handleCreateTaskDefinition = (req: express.Request, res: express.Response)
   };
 
   DB_DAILY_TASKS.push(newDef);
+  SEEDED_USER_IDS.add(userId);
   persistDataToDisk();
 
   res.json({
     success: true,
     message: 'Daily task added successfully',
     task: newDef,
-    definitions: DB_DAILY_TASKS,
+    definitions: getUserTaskDefinitions(userId),
   });
 };
 
 const handleUpdateTaskDefinition = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
+  const userId = extractUserId(req, '');
   const { title, time_slot, duration_minutes, category, notes, icon, order } = req.body;
 
-  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId);
+  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId && (!userId || t.user_id === userId));
   if (taskIndex === -1) {
     return res.status(404).json({ error: 'Daily task definition not found' });
   }
@@ -755,22 +1091,24 @@ const handleUpdateTaskDefinition = (req: express.Request, res: express.Response)
     success: true,
     message: 'Daily task updated successfully',
     task: DB_DAILY_TASKS[taskIndex],
-    definitions: DB_DAILY_TASKS,
+    definitions: getUserTaskDefinitions(existing.user_id),
   });
 };
 
 const handleDeleteTaskDefinition = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
-  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId);
+  const userId = extractUserId(req, '');
+
+  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId && (!userId || t.user_id === userId));
   if (taskIndex === -1) {
     return res.status(404).json({ error: 'Daily task definition not found' });
   }
 
   const removed = DB_DAILY_TASKS.splice(taskIndex, 1)[0];
 
-  // Remove corresponding completion logs
+  // Remove corresponding completion logs for this task & user
   for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
-    if (DB_DAILY_COMPLETIONS[i].task_id === taskId) {
+    if (DB_DAILY_COMPLETIONS[i].task_id === taskId && DB_DAILY_COMPLETIONS[i].user_id === removed.user_id) {
       DB_DAILY_COMPLETIONS.splice(i, 1);
     }
   }
@@ -779,17 +1117,48 @@ const handleDeleteTaskDefinition = (req: express.Request, res: express.Response)
   res.json({
     success: true,
     message: `Daily task "${removed.title}" deleted successfully`,
-    definitions: DB_DAILY_TASKS,
+    definitions: getUserTaskDefinitions(removed.user_id),
   });
 };
 
 const handleResetTaskDefinitions = (req: express.Request, res: express.Response) => {
-  DB_DAILY_TASKS = JSON.parse(JSON.stringify(DEFAULT_DAILY_TASKS_BACKUP));
+  const userId = extractUserId(req);
+  const isDev = isDeveloperUser(userId);
+
+  // Remove existing tasks for this user (and all developer aliases if dev)
+  DB_DAILY_TASKS = DB_DAILY_TASKS.filter((t) => isDev ? !isDeveloperUser(t.user_id) : t.user_id !== userId);
+
+  let restoredTasks: ServerDailyTaskDef[] = [];
+  if (isDev) {
+    restoredTasks = DEFAULT_DAILY_TASKS_BACKUP.map((t) => ({
+      ...t,
+      user_id: 'usr_1',
+    }));
+  } else {
+    restoredTasks = DEFAULT_NEW_USER_ROUTINE.map((item, idx) => ({
+      id: `dt_${userId}_${idx + 1}`,
+      user_id: userId,
+      order: idx + 1,
+      title: item.title,
+      time_slot: item.time_slot,
+      duration_minutes: item.duration_minutes,
+      category: item.category,
+      notes: item.notes,
+      icon: item.icon,
+    }));
+  }
+
+  DB_DAILY_TASKS.push(...restoredTasks);
+  SEEDED_USER_IDS.add(userId);
   persistDataToDisk();
+
   res.json({
     success: true,
-    message: 'Reset daily tasks to original 10 routine items',
-    definitions: DB_DAILY_TASKS,
+    user_id: userId,
+    message: isDev
+      ? 'Reset daily tasks to original 10 routine items'
+      : 'Reset daily tasks to default 12 routine items',
+    definitions: restoredTasks,
   });
 };
 
@@ -857,6 +1226,9 @@ app.post('/api/users/sync', (req, res) => {
         DB_USERS[idx] = { ...DB_USERS[idx], ...incomingUser };
       } else {
         DB_USERS.push(incomingUser);
+        if (incomingUser.id) {
+          seedUserDefaultRoutineIfNeeded(incomingUser.id);
+        }
       }
     });
     persistDataToDisk();
@@ -870,18 +1242,42 @@ app.post('/api/users/sync', (req, res) => {
 
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
-  const user = DB_USERS.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim());
+  const emailNorm = (email || '').toLowerCase().trim();
+  const user = DB_USERS.find((u) => u.email.toLowerCase() === emailNorm);
   if (!user) {
     return res.status(401).json({ success: false, error: 'User account not found' });
   }
-  if (user.password && user.password !== password) {
+
+  // Password validation (support developer credentials Admin@0543 and adminpassword)
+  let passwordValid = true;
+  if (user.password) {
+    if (user.email.toLowerCase() === '218r1a0543@gmail.com' || user.id === 'usr_admin') {
+      passwordValid = password === 'Admin@0543' || password === 'adminpassword' || password === user.password;
+    } else {
+      passwordValid = user.password === password;
+    }
+  }
+  if (!passwordValid) {
     return res.status(401).json({ success: false, error: 'Invalid password' });
   }
+
+  // Ensure default routine is seeded for this user if first login (developer/admin are excluded)
+  seedUserDefaultRoutineIfNeeded(user.id);
+
+  // Generate verified server session token (valid 30 days)
+  const token = `tf_sess_${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
+  DB_SESSIONS.set(token, {
+    user_id: user.id,
+    created_at: Date.now(),
+    expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000,
+  });
+  persistDataToDisk();
+
   const { password: _, ...cleanUser } = user;
   const currentStreak = USER_STREAKS[cleanUser.id] !== undefined
     ? USER_STREAKS[cleanUser.id]
     : calculateUserStreak(cleanUser.id).streak;
-  res.json({ success: true, user: { ...cleanUser, streak_count: currentStreak } });
+  res.json({ success: true, user: { ...cleanUser, streak_count: currentStreak }, token });
 });
 
 app.post('/api/auth/register', (req, res) => {
@@ -889,17 +1285,18 @@ app.post('/api/auth/register', (req, res) => {
   if (!email || !name) {
     return res.status(400).json({ success: false, error: 'Name and email are required' });
   }
-  const existing = DB_USERS.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
+  const emailClean = email.toLowerCase().trim();
+  const existing = DB_USERS.find((u) => u.email.toLowerCase() === emailClean);
   if (existing) {
     return res.status(400).json({ success: false, error: 'An account with this email already exists' });
   }
   const newUser: ServerUser = {
     id: `usr_${Date.now()}`,
     name,
-    email: email.trim(),
+    email: emailClean,
     password: password || 'defaultpass',
     role: role || 'user',
-    department: department || 'Computer Science & Engineering',
+    department: department || 'General Studies',
     avatar: avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     streak_count: 0,
     longest_streak: 0,
@@ -908,9 +1305,71 @@ app.post('/api/auth/register', (req, res) => {
     created_at: new Date().toISOString().split('T')[0],
   };
   DB_USERS.push(newUser);
+
+  // Seed default 12 routine tasks for new user exactly once
+  seedUserDefaultRoutineIfNeeded(newUser.id);
+
+  // Generate verified server session token (valid 30 days)
+  const token = `tf_sess_${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
+  DB_SESSIONS.set(token, {
+    user_id: newUser.id,
+    created_at: Date.now(),
+    expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000,
+  });
   persistDataToDisk();
+
   const { password: _, ...cleanUser } = newUser;
-  res.json({ success: true, user: cleanUser });
+  res.json({ success: true, user: cleanUser, token });
+});
+
+const handleVerifySession = (req: express.Request, res: express.Response) => {
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const token = (bearerToken || req.body?.token || req.query?.token || req.headers['x-session-token']) as string;
+
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'No session token provided' });
+  }
+
+  const sess = DB_SESSIONS.get(token);
+  if (!sess) {
+    return res.status(401).json({ success: false, error: 'Invalid or unknown session token' });
+  }
+
+  if (Date.now() > sess.expires_at) {
+    DB_SESSIONS.delete(token);
+    persistDataToDisk();
+    return res.status(401).json({ success: false, error: 'Session has expired. Please sign in again.' });
+  }
+
+  const user = DB_USERS.find((u) => u.id === sess.user_id);
+  if (!user) {
+    DB_SESSIONS.delete(token);
+    persistDataToDisk();
+    return res.status(401).json({ success: false, error: 'Associated user account not found' });
+  }
+
+  seedUserDefaultRoutineIfNeeded(user.id);
+  const { password: _, ...cleanUser } = user;
+  const currentStreak = USER_STREAKS[cleanUser.id] !== undefined
+    ? USER_STREAKS[cleanUser.id]
+    : calculateUserStreak(cleanUser.id).streak;
+
+  res.json({ success: true, user: { ...cleanUser, streak_count: currentStreak } });
+};
+
+app.get('/api/auth/me', handleVerifySession);
+app.post('/api/auth/verify', handleVerifySession);
+
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const token = (bearerToken || req.body?.token || req.query?.token || req.headers['x-session-token']) as string;
+  if (token && DB_SESSIONS.has(token)) {
+    DB_SESSIONS.delete(token);
+    persistDataToDisk();
+  }
+  res.json({ success: true, message: 'Session terminated successfully' });
 });
 
 app.post('/api/auth/update-profile', (req, res) => {
@@ -1037,7 +1496,7 @@ function executeAgentToolCall(
       const taskId = args.task_id;
       const isCompleted = Boolean(args.completed);
       let record = DB_DAILY_COMPLETIONS.find(
-        (c) => (c.user_id === effectiveUserId || !c.user_id) && c.task_id === taskId && c.date === targetDate
+        (c) => c.user_id === effectiveUserId && c.task_id === taskId && c.date === targetDate
       );
       if (record) {
         record.completed = isCompleted;
@@ -1055,7 +1514,8 @@ function executeAgentToolCall(
       }
       persistDataToDisk();
       const streakInfo = calculateUserStreak(effectiveUserId);
-      const taskDef = DB_DAILY_TASKS.find((t) => t.id === taskId);
+      const userDefs = getUserTaskDefinitions(effectiveUserId);
+      const taskDef = userDefs.find((t) => t.id === taskId);
       return {
         success: true,
         result: { task_id: taskId, date: targetDate, completed: isCompleted, streak: streakInfo.streak },
@@ -1064,9 +1524,11 @@ function executeAgentToolCall(
     }
 
     case 'add_daily_task': {
+      const userDefs = getUserTaskDefinitions(effectiveUserId);
       const newDef: ServerDailyTaskDef = {
-        id: `dt_${Date.now()}`,
-        order: DB_DAILY_TASKS.length + 1,
+        id: `dt_${effectiveUserId}_${Date.now()}`,
+        user_id: effectiveUserId,
+        order: userDefs.length + 1,
         title: args.title || 'New Routine Task',
         time_slot: args.time_slot || '30mins',
         duration_minutes: Number(args.duration_minutes) || 30,
@@ -1075,6 +1537,7 @@ function executeAgentToolCall(
         icon: args.icon || 'CheckCircle2',
       };
       DB_DAILY_TASKS.push(newDef);
+      SEEDED_USER_IDS.add(effectiveUserId);
       persistDataToDisk();
       return {
         success: true,
@@ -1084,7 +1547,7 @@ function executeAgentToolCall(
     }
 
     case 'update_daily_task': {
-      const idx = DB_DAILY_TASKS.findIndex((t) => t.id === args.task_id);
+      const idx = DB_DAILY_TASKS.findIndex((t) => t.id === args.task_id && t.user_id === effectiveUserId);
       if (idx === -1) {
         return { success: false, error: 'Task not found', actionSummary: `Task ${args.task_id} not found` };
       }
@@ -1105,13 +1568,13 @@ function executeAgentToolCall(
     }
 
     case 'delete_daily_task': {
-      const idx = DB_DAILY_TASKS.findIndex((t) => t.id === args.task_id);
+      const idx = DB_DAILY_TASKS.findIndex((t) => t.id === args.task_id && t.user_id === effectiveUserId);
       if (idx === -1) {
         return { success: false, error: 'Task not found', actionSummary: `Task ${args.task_id} not found` };
       }
       const removed = DB_DAILY_TASKS.splice(idx, 1)[0];
       for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
-        if (DB_DAILY_COMPLETIONS[i].task_id === args.task_id) {
+        if (DB_DAILY_COMPLETIONS[i].task_id === args.task_id && DB_DAILY_COMPLETIONS[i].user_id === effectiveUserId) {
           DB_DAILY_COMPLETIONS.splice(i, 1);
         }
       }
@@ -1125,9 +1588,10 @@ function executeAgentToolCall(
 
     case 'batch_complete_day': {
       const targetDate = args.date || new Date().toISOString().split('T')[0];
-      DB_DAILY_TASKS.forEach((def) => {
+      const userDefs = getUserTaskDefinitions(effectiveUserId);
+      userDefs.forEach((def) => {
         let rec = DB_DAILY_COMPLETIONS.find(
-          (c) => (c.user_id === effectiveUserId || !c.user_id) && c.task_id === def.id && c.date === targetDate
+          (c) => c.user_id === effectiveUserId && c.task_id === def.id && c.date === targetDate
         );
         if (rec) {
           rec.completed = true;
@@ -1148,7 +1612,7 @@ function executeAgentToolCall(
       return {
         success: true,
         result: { date: targetDate, streak: streakInfo.streak },
-        actionSummary: `Marked all ${DB_DAILY_TASKS.length} tasks completed for ${targetDate}`,
+        actionSummary: `Marked all ${userDefs.length} tasks completed for ${targetDate}`,
       };
     }
 
@@ -1156,7 +1620,7 @@ function executeAgentToolCall(
       const targetDate = args.date || new Date().toISOString().split('T')[0];
       for (let i = DB_DAILY_COMPLETIONS.length - 1; i >= 0; i--) {
         const c = DB_DAILY_COMPLETIONS[i];
-        if ((c.user_id === effectiveUserId || !c.user_id) && c.date === targetDate) {
+        if (c.user_id === effectiveUserId && c.date === targetDate) {
           DB_DAILY_COMPLETIONS.splice(i, 1);
         }
       }
@@ -1177,7 +1641,7 @@ function executeAgentToolCall(
           user_id: effectiveUserId,
           streak: streakInfo.streak,
           isTodayCompleted: streakInfo.isTodayCompleted,
-          totalTasks: DB_DAILY_TASKS.length,
+          totalTasks: getUserTaskDefinitions(effectiveUserId).length,
         },
         actionSummary: `Checked streak status for ${effectiveUserId}: current streak is ${streakInfo.streak} days`,
       };
@@ -1241,12 +1705,26 @@ function executeAgentToolCall(
     }
 
     case 'admin_reset_all_defaults': {
-      DB_DAILY_TASKS = JSON.parse(JSON.stringify(DEFAULT_DAILY_TASKS_BACKUP));
+      const targetUser = args.user_id || effectiveUserId;
+      DB_DAILY_TASKS = DB_DAILY_TASKS.filter((t) => t.user_id !== targetUser);
+      let restored: ServerDailyTaskDef[] = [];
+      if (targetUser === 'usr_1') {
+        restored = DEFAULT_DAILY_TASKS_BACKUP.map((t) => ({ ...t, user_id: 'usr_1' }));
+      } else {
+        restored = DEFAULT_NEW_USER_ROUTINE.map((item, idx) => ({
+          id: `dt_${targetUser}_${idx + 1}`,
+          user_id: targetUser,
+          order: idx + 1,
+          ...item,
+        }));
+      }
+      DB_DAILY_TASKS.push(...restored);
+      SEEDED_USER_IDS.add(targetUser);
       persistDataToDisk();
       return {
         success: true,
-        result: { tasks: DB_DAILY_TASKS },
-        actionSummary: `Reset all daily routine tasks to original 10 defaults`,
+        result: { tasks: restored },
+        actionSummary: `Reset routine tasks to default routine for ${targetUser}`,
       };
     }
 

@@ -47,7 +47,11 @@ import {
   User,
   DailyHistoryRecord,
 } from '../types';
-import { PERMANENT_DAILY_TASKS, INITIAL_DAILY_COMPLETIONS } from '../mockData';
+import {
+  PERMANENT_DAILY_TASKS,
+  INITIAL_DAILY_COMPLETIONS,
+  createDefaultNewUserTasks,
+} from '../mockData';
 
 interface DailyTasksSectionProps {
   currentUser?: User | null;
@@ -129,7 +133,7 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     onDateChangeRef.current?.(dateVal);
   }, []);
 
-  const userId = currentUser?.id || 'usr_1';
+  const userId = currentUser?.id || '';
   const STORAGE_KEY_DEFS = `timeforge_daily_task_defs_${userId}`;
   const STORAGE_KEY_COMPLETIONS = `timeforge_daily_completions_v5_${userId}`;
 
@@ -140,30 +144,32 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
 
   // Task Definitions State (Customizable / CRUD)
   const [taskDefinitions, setTaskDefinitions] = useState<DailyTaskDefinition[]>(() => {
+    if (!userId) return [];
     const saved = localStorage.getItem(STORAGE_KEY_DEFS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch (e) {
-        return PERMANENT_DAILY_TASKS;
+        // fallback below
       }
     }
-    return PERMANENT_DAILY_TASKS;
+    return (userId === 'usr_1' || userId === 'usr_admin') ? PERMANENT_DAILY_TASKS : createDefaultNewUserTasks(userId);
   });
 
   // Completions database state
   const [completions, setCompletions] = useState<DailyTaskCompletion[]>(() => {
+    if (!userId) return [];
     const saved = localStorage.getItem(STORAGE_KEY_COMPLETIONS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
       } catch (e) {
-        return INITIAL_DAILY_COMPLETIONS;
+        return (userId === 'usr_1' || userId === 'usr_admin') ? INITIAL_DAILY_COMPLETIONS : [];
       }
     }
-    return INITIAL_DAILY_COMPLETIONS;
+    return (userId === 'usr_1' || userId === 'usr_admin') ? INITIAL_DAILY_COMPLETIONS : [];
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -191,9 +197,20 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
   useEffect(() => {
     let isMounted = true;
     const fetchServerTasks = async () => {
+      if (!userId) {
+        if (isMounted) {
+          setTaskDefinitions([]);
+          setCompletions([]);
+          setIsLoading(false);
+        }
+        return;
+      }
       try {
         setIsLoading(true);
-        const res = await fetch(`/api/daily-tasks?date=${activeDate}&user_id=${userId}`);
+        const token = localStorage.getItem('timeforge_session_token');
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(`/api/daily-tasks?date=${activeDate}&user_id=${userId}`, { headers });
         if (res.ok) {
           const data = await res.json();
           if (isMounted) {
@@ -315,8 +332,15 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
 
   // Fetch full history for spreadsheet matrix view
   const loadHistory = async () => {
+    if (!userId) {
+      setHistoryRecords([]);
+      return;
+    }
     try {
-      const res = await fetch(`/api/daily-tasks/history?user_id=${userId}`);
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/daily-tasks/history?user_id=${userId}`, { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.history && Array.isArray(data.history)) {
@@ -933,20 +957,27 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
       try {
         await fetch(`/api/daily-tasks/definitions/${editingTask.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedDef),
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': userId,
+          },
+          body: JSON.stringify({
+            ...updatedDef,
+            user_id: userId,
+          }),
         });
       } catch (err) {
         console.warn('Server sync failed, saved locally.');
       }
     } else {
       // Create new task
-      const newId = `dt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const newId = `dt_${userId}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const nextOrder =
         taskDefinitions.length > 0 ? Math.max(...taskDefinitions.map((t) => t.order)) + 1 : 1;
 
       const newDef: DailyTaskDefinition = {
         id: newId,
+        user_id: userId,
         order: nextOrder,
         title: formTitle.trim(),
         time_slot: finalTimeSlot,
@@ -964,8 +995,14 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
       try {
         await fetch('/api/daily-tasks/definitions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newDef),
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': userId,
+          },
+          body: JSON.stringify({
+            ...newDef,
+            user_id: userId,
+          }),
         });
       } catch (err) {
         console.warn('Server sync failed, saved locally.');
@@ -992,27 +1029,37 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     setTaskToDelete(null);
 
     try {
-      await fetch(`/api/daily-tasks/definitions/${targetId}`, {
+      await fetch(`/api/daily-tasks/definitions/${targetId}?user_id=${userId}`, {
         method: 'DELETE',
+        headers: {
+          'x-user-id': userId,
+        },
       });
     } catch (err) {
       console.warn('Server sync failed, deleted locally.');
     }
   };
 
-  // Reset to original 10 reference tasks
+  // Reset to original routine tasks
   const handleResetToDefaults = async () => {
-    if (
-      confirm(
-        'Restore the original 10 daily tasks (Wake-Up, Qur’an, Walking, Regular class, ML, DS Video, Python, SQL, Communication, DSA)?'
-      )
-    ) {
-      setTaskDefinitions(PERMANENT_DAILY_TASKS);
-      localStorage.setItem(STORAGE_KEY_DEFS, JSON.stringify(PERMANENT_DAILY_TASKS));
+    const isAlex = userId === 'usr_1';
+    const confirmMsg = isAlex
+      ? 'Restore the original 10 daily tasks (Wake-Up, Qur’an, Walking, Regular class, ML, DS Video, Python, SQL, Communication, DSA)?'
+      : 'Restore the default daily routine (12 tasks including Morning Exercise, Study, College, Review, etc.)?';
+
+    if (confirm(confirmMsg)) {
+      const resetTasks = isAlex ? PERMANENT_DAILY_TASKS : createDefaultNewUserTasks(userId);
+      setTaskDefinitions(resetTasks);
+      localStorage.setItem(STORAGE_KEY_DEFS, JSON.stringify(resetTasks));
 
       try {
         await fetch('/api/daily-tasks/definitions/reset-defaults', {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': userId,
+          },
+          body: JSON.stringify({ user_id: userId }),
         });
       } catch (err) {}
     }

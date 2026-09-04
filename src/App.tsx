@@ -34,44 +34,32 @@ import {
   ThemeMode,
 } from './types';
 
-const INITIAL_REGISTERED_USERS: RegisteredAccount[] = [
-  { ...CURRENT_USER, password: 'password123' },
-  { ...ADMIN_USER, email: '218r1a0543@gmail.com', password: 'Admin@0543' },
-];
-
 export default function App() {
-  // Registered Accounts DB in Local Storage
+  // Registered Accounts cache in Local Storage (no plaintext credentials baked in source)
   const [registeredUsers, setRegisteredUsers] = useState<RegisteredAccount[]>(() => {
     const saved = localStorage.getItem('timeforge_registered_users');
     if (saved) {
       try {
-        const parsed: RegisteredAccount[] = JSON.parse(saved);
-        // Ensure the updated admin credentials with 218r1a0543@gmail.com exist and are up to date
-        const adminIndex = parsed.findIndex((u) => u.role === 'admin' || u.email === '218r1a0543@gmail.com');
-        if (adminIndex >= 0) {
-          parsed[adminIndex] = {
-            ...parsed[adminIndex],
-            name: 'Institutional Admin',
-            email: '218r1a0543@gmail.com',
-            password: 'Admin@0543',
-            role: 'admin',
-          };
-          return parsed;
-        }
-        return [...parsed, { ...ADMIN_USER, email: '218r1a0543@gmail.com', password: 'Admin@0543' }];
+        return JSON.parse(saved);
       } catch (e) {
-        return INITIAL_REGISTERED_USERS;
+        return [];
       }
     }
-    return INITIAL_REGISTERED_USERS;
+    return [];
   });
 
   const SCHEDULE_DATA_VERSION = 'v2_img_timetable';
 
-  // Application State with Local Storage persistence
+  // Application State with Local Storage persistence - No default mock user
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('timeforge_user');
-    return saved ? JSON.parse(saved) : CURRENT_USER;
+    if (!saved) return null;
+    try {
+      const parsed = JSON.parse(saved);
+      return parsed && parsed.id ? parsed : null;
+    } catch {
+      return null;
+    }
   });
 
   const [tasks, setTasks] = useState<Task[]>(() => {
@@ -138,7 +126,7 @@ export default function App() {
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [isAnnouncementsModalOpen, setIsAnnouncementsModalOpen] = useState(false);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(() => !currentUser);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'profile'>('login');
   const [unreadAnnouncementsCount, setUnreadAnnouncementsCount] = useState(2);
 
@@ -150,6 +138,39 @@ export default function App() {
     category: string;
     taskId?: string;
   } | null>(null);
+
+  // Verify session validity with backend on initial load
+  useEffect(() => {
+    const token = localStorage.getItem('timeforge_session_token');
+    if (token) {
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.success && data.user) {
+            setCurrentUser(data.user);
+            localStorage.setItem('timeforge_user', JSON.stringify(data.user));
+            setIsAuthModalOpen(false);
+          } else {
+            // Expired or invalid session
+            localStorage.removeItem('timeforge_session_token');
+            localStorage.removeItem('timeforge_user');
+            setCurrentUser(null);
+            setIsAuthModalOpen(true);
+          }
+        })
+        .catch(() => {
+          // If network fails, maintain existing state
+        });
+    } else {
+      const savedUser = localStorage.getItem('timeforge_user');
+      if (!savedUser) {
+        setCurrentUser(null);
+        setIsAuthModalOpen(true);
+      }
+    }
+  }, []);
 
   // Save to LocalStorage whenever state updates
   useEffect(() => {
@@ -648,6 +669,7 @@ export default function App() {
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    setIsAuthModalOpen(false);
   };
 
   const handleRegister = (newUser: RegisteredAccount) => {
@@ -657,6 +679,7 @@ export default function App() {
       return updated;
     });
     setCurrentUser(newUser);
+    setIsAuthModalOpen(false);
   };
 
   const handleUpdateProfile = (updatedUser: User) => {
@@ -676,8 +699,18 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    const token = localStorage.getItem('timeforge_session_token');
+    if (token) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
     setCurrentUser(null);
     localStorage.removeItem('timeforge_user');
+    localStorage.removeItem('timeforge_session_token');
+    setAuthModalMode('login');
+    setIsAuthModalOpen(true);
   };
 
   // Role Switcher (Alex Rivera <-> Dr. Eleanor Vance)
@@ -687,6 +720,32 @@ export default function App() {
       (role === 'admin' ? ADMIN_USER : CURRENT_USER);
     setCurrentUser(targetUser);
   };
+
+  // Blocking Authentication Gate: If no user is authenticated, render ONLY the Login/Register modal
+  // Zero tasks, streaks, timetable, or any account's private workspace rendered behind or underneath it
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#05070A] text-slate-200 selection:bg-cyan-500 selection:text-black flex flex-col font-sans relative overflow-hidden items-center justify-center p-4">
+        {/* Immersive Ambient Orbs */}
+        <div className="orb w-96 h-96 bg-cyan-900/20 -top-20 -left-20 fixed" />
+        <div className="orb w-[500px] h-[500px] bg-indigo-900/15 -bottom-40 -right-20 fixed" />
+        <div className="orb w-80 h-80 bg-cyan-500/5 top-1/3 left-1/2 fixed" />
+
+        <AuthModal
+          isOpen={true}
+          isBlockingGate={true}
+          onClose={() => {}}
+          currentUser={null}
+          registeredUsers={registeredUsers}
+          onLogin={handleLogin}
+          onRegister={handleRegister}
+          onLogout={handleLogout}
+          onUpdateProfile={handleUpdateProfile}
+          initialMode={authModalMode}
+        />
+      </div>
+    );
+  }
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todayTasks = tasks.filter((t) => !t.date || t.date === todayStr);

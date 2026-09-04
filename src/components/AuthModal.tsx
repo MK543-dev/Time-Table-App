@@ -37,6 +37,7 @@ interface AuthModalProps {
   onLogout: () => void;
   onUpdateProfile?: (updatedUser: User) => void;
   initialMode?: 'login' | 'register' | 'profile';
+  isBlockingGate?: boolean;
 }
 
 const PRESET_AVATARS = [
@@ -58,10 +59,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onLogout,
   onUpdateProfile,
   initialMode = 'login',
+  isBlockingGate = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'profile'>(
     currentUser && initialMode === 'profile' ? 'profile' : initialMode
   );
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Synchronize activeTab with incoming initialMode when modal opens
   useEffect(() => {
@@ -115,38 +118,70 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    setIsSubmitting(true);
 
     const emailClean = loginEmail.trim().toLowerCase();
+
+    // 1. Authenticate with backend server
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailClean, password: loginPassword.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.user) {
+        if (data.token) {
+          localStorage.setItem('timeforge_session_token', data.token);
+        }
+        localStorage.setItem('timeforge_user', JSON.stringify(data.user));
+        onLogin(data.user);
+        onClose();
+        setIsSubmitting(false);
+        return;
+      }
+      if (data?.error) {
+        setLoginError(data.error);
+        setIsSubmitting(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend login connection error, checking local store:', err);
+    }
+
+    // 2. Fallback check in registered users list
     const userFound = registeredUsers.find(
       (u) =>
         u.email.toLowerCase() === emailClean ||
-        u.name.toLowerCase() === emailClean ||
-        (emailClean.includes('218r1a0543') && u.email.includes('218r1a0543'))
+        u.name.toLowerCase() === emailClean
     );
 
     if (!userFound) {
-      setLoginError(`No account found matching "${loginEmail}". Please check your email or click One-Click Preset Accounts below.`);
+      setLoginError(`Invalid email or password. Please check your credentials.`);
+      setIsSubmitting(false);
       return;
     }
 
     if (userFound.password && loginPassword.trim()) {
       const isExactMatch = userFound.password === loginPassword.trim();
-      const isCaseInsensitiveMatch = userFound.password.toLowerCase() === loginPassword.trim().toLowerCase();
-      if (!isExactMatch && !isCaseInsensitiveMatch) {
-        setLoginError('Incorrect password. Please verify your credentials.');
+      if (!isExactMatch) {
+        setLoginError('Invalid email or password. Please check your credentials.');
+        setIsSubmitting(false);
         return;
       }
     }
 
-    // Login successful
+    // Login successful via fallback
+    localStorage.setItem('timeforge_user', JSON.stringify(userFound));
     onLogin(userFound);
     onClose();
+    setIsSubmitting(false);
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError(null);
     setRegSuccess(null);
@@ -168,12 +203,53 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    // Check if email already exists
+    setIsSubmitting(true);
+
+    // 1. Register with backend server (seeds 12 routine tasks atomically on server)
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: regName.trim(),
+          email: regEmail.trim().toLowerCase(),
+          password: regPassword,
+          role: regRole,
+          department: regDepartment.trim() || 'General Studies',
+          avatar: selectedAvatar,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.user) {
+        if (data.token) {
+          localStorage.setItem('timeforge_session_token', data.token);
+        }
+        localStorage.setItem('timeforge_user', JSON.stringify(data.user));
+        onRegister(data.user);
+        setRegSuccess('Account created successfully! Logging you in...');
+        setTimeout(() => {
+          onLogin(data.user);
+          onClose();
+          setIsSubmitting(false);
+        }, 600);
+        return;
+      }
+      if (data?.error) {
+        setRegError(data.error);
+        setIsSubmitting(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend register error, using local fallback:', err);
+    }
+
+    // 2. Check if email already exists locally
     const exists = registeredUsers.some(
       (u) => u.email.toLowerCase() === regEmail.trim().toLowerCase()
     );
     if (exists) {
       setRegError('An account with this email address already exists. Please sign in instead.');
+      setIsSubmitting(false);
       return;
     }
 
@@ -194,11 +270,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     };
 
     onRegister(newUser);
+    localStorage.setItem('timeforge_user', JSON.stringify(newUser));
     setRegSuccess('Account created successfully! Logging you in...');
     setTimeout(() => {
       onLogin(newUser);
       onClose();
-    }, 800);
+      setIsSubmitting(false);
+    }, 600);
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {
@@ -224,20 +302,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setTimeout(() => setProfileSuccess(null), 3000);
   };
 
-  const handleFillAdminCredentials = () => {
-    setLoginEmail('218r1a0543@gmail.com');
-    setLoginPassword('Admin@0543');
-    setLoginError(null);
-  };
-
-  const handleFillStudentCredentials = () => {
-    setLoginEmail('alex.rivera@university.edu');
-    setLoginPassword('password123');
-    setLoginError(null);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isBlockingGate) {
+          onClose();
+        }
+      }}
+    >
       <div className="w-full max-w-lg rounded-3xl glass-dark border border-white/10 shadow-2xl p-6 space-y-6 relative overflow-hidden max-h-[90vh] overflow-y-auto">
         {/* Ambient Top Glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-24 bg-cyan-500/15 blur-3xl pointer-events-none" />
@@ -270,12 +343,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl glass hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {!isBlockingGate ? (
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-xl glass hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          ) : (
+            <div className="px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-[10px] font-mono text-cyan-300 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Auth Gate</span>
+            </div>
+          )}
         </div>
 
         {/* Navigation Mode Pill Switcher */}
@@ -338,101 +419,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             )}
 
-            {/* One-Click Quick Login Cards (Always Clickable) */}
-            <div className="space-y-2">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                <span>One-Click Instant Logins</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {/* Admin Card */}
-                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col justify-between gap-2 shadow-[0_0_15px_rgba(245,158,11,0.1)] hover:border-amber-400 transition-all">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-500 text-black font-mono">
-                        ADMIN
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleFillAdminCredentials}
-                        className="text-[10px] text-amber-300 hover:underline font-semibold"
-                      >
-                        Auto-fill form
-                      </button>
-                    </div>
-                    <div className="text-xs font-bold text-white mt-1.5">Institutional Admin</div>
-                    <div className="text-[11px] font-mono text-amber-200/80 truncate">
-                      218r1a0543@gmail.com
-                    </div>
-                    <div className="text-[10px] text-slate-400">Pass: Admin@0543</div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const adminAcc = registeredUsers.find((u) => u.email === '218r1a0543@gmail.com' || u.role === 'admin');
-                      if (adminAcc) {
-                        onLogin(adminAcc);
-                        onClose();
-                      }
-                    }}
-                    className="w-full py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-amber-500/20"
-                  >
-                    <span>Log In as Admin</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Student Card */}
-                <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex flex-col justify-between gap-2 shadow-[0_0_15px_rgba(34,211,238,0.1)] hover:border-cyan-400 transition-all">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-mono">
-                        STUDENT
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleFillStudentCredentials}
-                        className="text-[10px] text-cyan-300 hover:underline font-semibold"
-                      >
-                        Auto-fill form
-                      </button>
-                    </div>
-                    <div className="text-xs font-bold text-white mt-1.5">Alex Rivera</div>
-                    <div className="text-[11px] font-mono text-cyan-200/80 truncate">
-                      alex.rivera@university.edu
-                    </div>
-                    <div className="text-[10px] text-slate-400">Pass: password123</div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const studentAcc = registeredUsers.find((u) => u.role === 'user');
-                      if (studentAcc) {
-                        onLogin(studentAcc);
-                        onClose();
-                      }
-                    }}
-                    className="w-full py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-cyan-500/20"
-                  >
-                    <span>Log In as Student</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="relative flex items-center justify-center">
-              <div className="border-t border-white/10 w-full" />
-              <span className="bg-slate-900 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-                Or Sign In With Custom Email
-              </span>
-              <div className="border-t border-white/10 w-full" />
-            </div>
-
-            {/* Manual Form */}
+            {/* Standard Sign In Form */}
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
@@ -444,7 +431,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   required
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="e.g. 218r1a0543@gmail.com"
+                  placeholder="name@university.edu or your email"
                   className="w-full px-3.5 py-2.5 rounded-xl glass-dark border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
                 />
               </div>
@@ -460,7 +447,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     required
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="Enter password (e.g. Admin@0543)"
+                    placeholder="Enter your password"
                     className="w-full px-3.5 py-2.5 pr-10 rounded-xl glass-dark border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
                   />
                   <button
@@ -476,10 +463,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <button
                 type="submit"
                 id="login-submit-btn"
-                className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.01]"
+                disabled={isSubmitting}
+                className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-black text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.01]"
               >
-                <LogIn className="w-4 h-4" />
-                <span>Sign In to Account</span>
+                {isSubmitting ? (
+                  <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <LogIn className="w-4 h-4" />
+                )}
+                <span>{isSubmitting ? 'Authenticating...' : 'Sign In to Account'}</span>
               </button>
             </form>
 
@@ -662,10 +654,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="submit"
               id="register-submit-btn"
-              className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.01]"
+              disabled={isSubmitting}
+              className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-black text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.01]"
             >
-              <UserPlus className="w-4 h-4" />
-              <span>Create Account & Start Learning</span>
+              {isSubmitting ? (
+                <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <UserPlus className="w-4 h-4" />
+              )}
+              <span>{isSubmitting ? 'Creating Account & Seeding Tasks...' : 'Create Account & Start Learning'}</span>
             </button>
           </form>
         )}
@@ -855,69 +852,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
             )}
-
-            {/* Quick Switch Registered Accounts */}
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-white flex items-center justify-between">
-                <span>Switch to Another Account:</span>
-                <button
-                  onClick={() => {
-                    setActiveTab('login');
-                    setLoginError(null);
-                  }}
-                  className="text-[11px] text-cyan-400 hover:underline"
-                >
-                  + Sign In Different Account
-                </button>
-              </div>
-
-              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {registeredUsers.map((u) => {
-                  const isCurrent = u.id === currentUser.id || u.email === currentUser.email;
-                  return (
-                    <div
-                      key={u.id}
-                      className={`p-2 rounded-xl border flex items-center justify-between gap-3 text-xs transition-colors ${
-                        isCurrent
-                          ? 'bg-cyan-500/10 border-cyan-500/30 text-white'
-                          : 'glass-dark border-white/5 text-slate-400 hover:border-white/20'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <img
-                          src={u.avatar}
-                          alt={u.name}
-                          className="w-6 h-6 rounded-full object-cover border border-white/10"
-                        />
-                        <div className="min-w-0">
-                          <span className="font-semibold truncate text-white block">{u.name}</span>
-                          <span className="text-[10px] text-slate-400 font-mono truncate block">{u.email}</span>
-                        </div>
-                        <span className={`text-[9px] font-mono uppercase px-1 py-0.2 rounded ${
-                          u.role === 'admin' ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-slate-400'
-                        }`}>
-                          {u.role}
-                        </span>
-                      </div>
-
-                      {isCurrent ? (
-                        <span className="text-[10px] font-bold text-cyan-400 shrink-0">Active</span>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            onLogin(u);
-                            onClose();
-                          }}
-                          className="px-2.5 py-1 rounded-lg glass text-cyan-300 hover:bg-cyan-500/15 text-[11px] font-semibold border border-cyan-500/20 shrink-0"
-                        >
-                          Switch
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
 
             {/* Logout and Actions */}
             <div className="flex items-center justify-between pt-3 border-t border-white/10">

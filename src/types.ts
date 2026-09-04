@@ -130,6 +130,7 @@ export interface CategoryDef {
 
 export interface DailyTaskDefinition {
   id: string;
+  user_id?: string;
   order: number;
   title: string;
   time_slot: string; // e.g. "5:00 - 5:30", "15mins", "1-1/2 hr", "10:30 - 1:31", etc.
