@@ -1,0 +1,8 @@
+{
+  "name": "TimeForge",
+  "description": "Smart timetable and progress tracker with 3D completion torus, rotating schedules, Toggl-style time logging, AI scheduling assistant, and role-gated admin controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
