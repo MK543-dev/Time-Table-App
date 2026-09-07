@@ -639,7 +639,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (onUpdateUserAccount) {
-                      onUpdateUserAccount(editingUser);
+                      const isMasterAdmin = editingUser.email.toLowerCase().trim() === '218r1a0543@gmail.com';
+                      const sanitized: RegisteredAccount = {
+                        ...editingUser,
+                        role: isMasterAdmin ? 'admin' : 'user',
+                      };
+                      onUpdateUserAccount(sanitized);
                       setSavedMessage(`User "${editingUser.name}" successfully updated!`);
                       setTimeout(() => setSavedMessage(null), 3000);
                     }
@@ -659,15 +664,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-semibold text-slate-300">Role</label>
-                      <select
-                        value={editingUser.role}
-                        onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as any })}
-                        className="w-full mt-1 px-3 py-2 rounded-xl glass-dark border border-white/10 text-xs text-slate-200"
-                      >
-                        <option value="user" className="bg-slate-900">user (Student)</option>
-                        <option value="admin" className="bg-slate-900">admin (Administrator)</option>
-                      </select>
+                      <label className="text-xs font-semibold text-slate-300">Role & Permissions</label>
+                      {editingUser.email.toLowerCase().trim() === '218r1a0543@gmail.com' ? (
+                        <div className="w-full mt-1 px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 text-xs text-amber-300 font-bold flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>admin (Institutional Lead)</span>
+                        </div>
+                      ) : (
+                        <div className="w-full mt-1 px-3 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/25 text-xs text-cyan-300 font-medium flex items-center justify-between">
+                          <span>user (Student)</span>
+                          <span className="text-[10px] text-slate-400 font-mono">Restricted</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -805,13 +813,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (!newUserForm.name || !newUserForm.email) return;
+                    const emailClean = newUserForm.email.toLowerCase().trim();
+                    const isMasterAdmin = emailClean === '218r1a0543@gmail.com';
                     const created: RegisteredAccount = {
-                      id: `usr_${Date.now()}`,
+                      id: isMasterAdmin ? 'usr_admin' : `usr_${Date.now()}`,
                       name: newUserForm.name,
-                      email: newUserForm.email.toLowerCase(),
-                      password: newUserForm.password || 'Student@123',
-                      role: newUserForm.role || 'user',
-                      department: newUserForm.department || 'General Studies',
+                      email: emailClean,
+                      password: newUserForm.password || (isMasterAdmin ? 'Admin@0543' : 'Student@123'),
+                      role: isMasterAdmin ? 'admin' : 'user',
+                      department: newUserForm.department || (isMasterAdmin ? 'Academic Operations & Governance' : 'General Studies'),
                       avatar:
                         newUserForm.avatar ||
                         'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -868,14 +878,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-slate-300">Role</label>
-                      <select
-                        value={newUserForm.role}
-                        onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value as any })}
-                        className="w-full mt-1 px-3 py-2 rounded-xl glass-dark border border-white/10 text-xs text-slate-200"
-                      >
-                        <option value="user" className="bg-slate-900">user (Student)</option>
-                        <option value="admin" className="bg-slate-900">admin (Administrator)</option>
-                      </select>
+                      <div className="w-full mt-1 px-3 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/25 text-xs text-cyan-300 font-medium flex items-center justify-between">
+                        <span>user (Student)</span>
+                        <span className="text-[10px] text-slate-400 font-mono">Restricted</span>
+                      </div>
                     </div>
                   </div>
 

@@ -11,6 +11,7 @@ import {
   Square,
   LogIn,
   UserCheck,
+  User as UserIcon,
   Bot,
 } from 'lucide-react';
 import { User, ThemeMode } from '../types';
@@ -19,7 +20,6 @@ interface NavbarProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
   currentUser: User | null;
-  onSwitchUser: (role: 'admin' | 'user') => void;
   onOpenAuthModal: (mode?: 'login' | 'register' | 'profile') => void;
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
@@ -43,7 +43,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentTab,
   setCurrentTab,
   currentUser,
-  onSwitchUser,
   onOpenAuthModal,
   theme,
   setTheme,
@@ -71,6 +70,11 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'ai', label: 'AI Assistant', icon: Sparkles },
     { id: 'admin', label: 'Admin', icon: ShieldAlert, adminOnly: true },
   ];
+
+  // Ordinary users never see admin tabs
+  const visibleNavItems = navItems.filter(
+    (item) => !item.adminOnly || currentUser?.role === 'admin'
+  );
 
   return (
     <header className="sticky top-0 z-40 w-full backdrop-blur-2xl border-b transition-colors duration-200 bg-black/30 border-white/5">
@@ -102,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Center Navigation Links (Theme Styled) */}
           <nav className="hidden md:flex items-center gap-1 glass p-1 rounded-xl border border-white/5">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentTab === item.id;
 
@@ -120,10 +124,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
                   <span>{item.label}</span>
                   {item.adminOnly && (
-                    <span className={`text-[9px] px-1 py-0.2 rounded font-mono uppercase ${
-                      currentUser?.role === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-500'
-                    }`}>
-                      {currentUser?.role === 'admin' ? 'Admin' : 'Lock'}
+                    <span className="text-[9px] px-1 py-0.2 rounded font-mono uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Admin
                     </span>
                   )}
                 </button>
@@ -240,12 +242,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
 
                 <button
-                  onClick={() => onOpenAuthModal('login')}
+                  onClick={() => onOpenAuthModal('profile')}
                   className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass hover:bg-white/10 border border-white/10 text-[11px] font-semibold text-slate-300 hover:text-white transition-colors"
-                  title="Sign In with different account or Admin credentials"
+                  title="Manage profile & account settings"
                 >
-                  <LogIn className="w-3 h-3 text-cyan-400" />
-                  <span>Switch</span>
+                  <UserIcon className="w-3 h-3 text-cyan-400" />
+                  <span>Account</span>
                 </button>
               </div>
             ) : (
@@ -270,7 +272,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Mobile Navigation row */}
         <div className="md:hidden flex items-center justify-between overflow-x-auto py-2 border-t border-white/5 gap-1 scrollbar-none">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (

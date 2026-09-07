@@ -47,16 +47,21 @@ export const AgentChatModal: React.FC<AgentChatModalProps> = ({
   currentUser,
   onStateModified,
 }) => {
+  const isAdmin = currentUser?.role === 'admin';
   const [role, setRole] = useState<'developer' | 'user'>(() => {
     return currentUser?.role === 'admin' ? 'developer' : 'user';
   });
+
+  useEffect(() => {
+    setRole(currentUser?.role === 'admin' ? 'developer' : 'user');
+  }, [currentUser?.role]);
 
   const [messages, setMessages] = useState<AgentChatMessage[]>([
     {
       id: 'init-1',
       role: 'assistant',
       content:
-        role === 'developer'
+        currentUser?.role === 'admin'
           ? "👋 **Developer AI Agent Online.** You have full administrative control. I can create, edit, or delete daily routine tasks, adjust dates, modify streaks, batch-complete routines, or inspect raw state. What would you like me to do?"
           : "👋 **Hello! I'm your TimeForge AI Assistant.** I can help you plan your routine, log task progress, check your current streak, and stay motivated. How can I help you today?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -265,37 +270,39 @@ export const AgentChatModal: React.FC<AgentChatModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Role Switcher Pill */}
-            <div className="flex items-center bg-black/40 rounded-xl p-1 border border-white/10">
-              <button
-                type="button"
-                id="agent-role-user-btn"
-                onClick={() => handleRoleToggle('user')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                  role === 'user'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Switch to User Mode"
-              >
-                <UserIcon className="w-3.5 h-3.5" />
-                <span>User</span>
-              </button>
-              <button
-                type="button"
-                id="agent-role-dev-btn"
-                onClick={() => handleRoleToggle('developer')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                  role === 'developer'
-                    ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50 shadow-[0_0_8px_rgba(168,85,247,0.3)]'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Switch to Developer Mode with Full Administrative Access"
-              >
-                <Terminal className="w-3.5 h-3.5 text-purple-400" />
-                <span>Developer</span>
-              </button>
-            </div>
+            {/* Role Switcher Pill - Only visible and toggleable for Admin / Developer */}
+            {isAdmin && (
+              <div className="flex items-center bg-black/40 rounded-xl p-1 border border-white/10">
+                <button
+                  type="button"
+                  id="agent-role-user-btn"
+                  onClick={() => handleRoleToggle('user')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    role === 'user'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Switch to User Mode"
+                >
+                  <UserIcon className="w-3.5 h-3.5" />
+                  <span>User</span>
+                </button>
+                <button
+                  type="button"
+                  id="agent-role-dev-btn"
+                  onClick={() => handleRoleToggle('developer')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    role === 'developer'
+                      ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50 shadow-[0_0_8px_rgba(168,85,247,0.3)]'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Switch to Developer Mode with Full Administrative Access"
+                >
+                  <Terminal className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Developer</span>
+                </button>
+              </div>
+            )}
 
             {/* Close Button */}
             <button

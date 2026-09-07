@@ -267,6 +267,14 @@
       "task_id": "dt_usr_admin_2",
       "date": "2026-09-03",
       "completed": false
+    },
+    {
+      "id": "dtc_1788795805606_zj2t",
+      "user_id": "usr_1",
+      "task_id": "dt_7",
+      "date": "2026-09-07",
+      "completed": true,
+      "completed_at": "2026-09-07T15:43:25.606Z"
     }
   ],
   "users": [
@@ -289,7 +297,7 @@
       "id": "usr_admin",
       "name": "Institutional Admin",
       "email": "218r1a0543@gmail.com",
-      "password": "adminpassword",
+      "password": "Admin@0543",
       "role": "admin",
       "streak_count": 0,
       "longest_streak": 12,
@@ -302,11 +310,37 @@
   ],
   "seeded_users": [
     "usr_1",
-    "usr_1",
-    "usr_admin"
+    "usr_admin",
+    "usr_1788796041224"
   ],
   "user_tasks": {},
   "streaks": {
     "usr_1": 5
-  }
+  },
+  "sessions": [
+    [
+      "tf_sess_1788796038760_9032ib8za9",
+      {
+        "user_id": "usr_admin",
+        "created_at": 1788796038760,
+        "expires_at": 1791388038760
+      }
+    ],
+    [
+      "tf_sess_1788796041225_vvhq8ny2le",
+      {
+        "user_id": "usr_1788796041224",
+        "created_at": 1788796041225,
+        "expires_at": 1791388041225
+      }
+    ],
+    [
+      "tf_sess_1788796064754_m1m4pbkpmu",
+      {
+        "user_id": "usr_admin",
+        "created_at": 1788796064754,
+        "expires_at": 1791388064754
+      }
+    ]
+  ]
 }

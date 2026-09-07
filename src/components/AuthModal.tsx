@@ -19,7 +19,13 @@ import {
   Layers,
   Edit3,
   Save,
-  ArrowRight
+  ArrowRight,
+  Clock,
+  Calendar,
+  Zap,
+  Check,
+  Shield,
+  BookOpen
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 
@@ -36,7 +42,7 @@ interface AuthModalProps {
   onRegister: (newUser: RegisteredAccount) => void;
   onLogout: () => void;
   onUpdateProfile?: (updatedUser: User) => void;
-  initialMode?: 'login' | 'register' | 'profile';
+  initialMode?: 'landing' | 'login' | 'register' | 'profile';
   isBlockingGate?: boolean;
 }
 
@@ -58,21 +64,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onRegister,
   onLogout,
   onUpdateProfile,
-  initialMode = 'login',
+  initialMode = 'landing',
   isBlockingGate = false,
 }) => {
-  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'profile'>(
-    currentUser && initialMode === 'profile' ? 'profile' : initialMode
+  const [activeTab, setActiveTab] = useState<'landing' | 'login' | 'register' | 'profile'>(
+    currentUser
+      ? initialMode === 'profile'
+        ? 'profile'
+        : initialMode === 'landing'
+        ? 'login'
+        : initialMode
+      : initialMode || 'landing'
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Synchronize activeTab with incoming initialMode when modal opens
   useEffect(() => {
     if (isOpen) {
-      if (initialMode === 'profile' && currentUser) {
-        setActiveTab('profile');
+      if (currentUser) {
+        setActiveTab(initialMode === 'profile' ? 'profile' : initialMode === 'landing' ? 'login' : initialMode);
       } else {
-        setActiveTab(initialMode);
+        setActiveTab(initialMode || 'landing');
       }
       setLoginError(null);
       setRegError(null);
@@ -205,6 +217,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsSubmitting(true);
 
+    // Strict Admin Access Control: Only 218r1a0543@gmail.com is ever granted admin role
+    const isMasterAdminEmail = regEmail.trim().toLowerCase() === '218r1a0543@gmail.com';
+    const finalRole: UserRole = isMasterAdminEmail ? 'admin' : 'user';
+
     // 1. Register with backend server (seeds 12 routine tasks atomically on server)
     try {
       const res = await fetch('/api/auth/register', {
@@ -214,7 +230,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           name: regName.trim(),
           email: regEmail.trim().toLowerCase(),
           password: regPassword,
-          role: regRole,
+          role: finalRole,
           department: regDepartment.trim() || 'General Studies',
           avatar: selectedAvatar,
         }),
@@ -254,11 +270,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     const newUser: RegisteredAccount = {
-      id: `usr_${Date.now()}`,
+      id: isMasterAdminEmail ? 'usr_admin' : `usr_${Date.now()}`,
       name: regName.trim(),
       email: regEmail.trim().toLowerCase(),
       password: regPassword,
-      role: regRole,
+      role: finalRole,
       theme_pref: 'glass',
       streak_count: 0,
       longest_streak: 0,
@@ -311,9 +327,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       }}
     >
-      <div className="w-full max-w-lg rounded-3xl glass-dark border border-white/10 shadow-2xl p-6 space-y-6 relative overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div
+        className={`w-full ${
+          activeTab === 'landing' ? 'max-w-2xl' : 'max-w-lg'
+        } rounded-3xl glass-dark border border-white/10 shadow-2xl p-6 sm:p-7 space-y-5 relative overflow-hidden max-h-[92vh] overflow-y-auto transition-all duration-300`}
+      >
         {/* Ambient Top Glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-24 bg-cyan-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-28 bg-cyan-500/15 blur-3xl pointer-events-none" />
 
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10 relative z-10">
@@ -323,6 +343,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <UserIcon className="w-5 h-5 text-cyan-400" />
               ) : activeTab === 'register' ? (
                 <UserPlus className="w-5 h-5 text-cyan-400" />
+              ) : activeTab === 'landing' ? (
+                <Sparkles className="w-5 h-5 text-cyan-400" />
               ) : (
                 <LogIn className="w-5 h-5 text-cyan-400" />
               )}
@@ -333,12 +355,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   ? 'My Account Profile'
                   : activeTab === 'register'
                   ? 'Create New Account'
+                  : activeTab === 'landing'
+                  ? 'Welcome to TimeForge'
                   : 'Sign In to TimeForge'}
               </h2>
               <p className="text-xs text-slate-400">
                 {activeTab === 'profile'
                   ? 'Manage your personal details, academic major & credentials'
-                  : 'Timetable, task progress & academic management platform'}
+                  : activeTab === 'landing'
+                  ? 'Intelligent Academic Timetable & Routine Operating System'
+                  : activeTab === 'register'
+                  ? 'Join TimeForge with an isolated, private student workspace'
+                  : 'Sign in to access your synchronized routine and classes'}
               </p>
             </div>
           </div>
@@ -361,8 +389,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Navigation Mode Pill Switcher */}
         <div className="flex items-center gap-1.5 p-1 rounded-xl glass border border-white/10 text-xs font-semibold relative z-10">
+          {!currentUser && (
+            <button
+              type="button"
+              id="auth-tab-landing-btn"
+              onClick={() => {
+                setActiveTab('landing');
+                setLoginError(null);
+                setRegError(null);
+              }}
+              className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === 'landing'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_10px_rgba(34,211,238,0.2)] font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Overview</span>
+            </button>
+          )}
+
           <button
             type="button"
+            id="auth-tab-login-btn"
             onClick={() => {
               setActiveTab('login');
               setLoginError(null);
@@ -379,6 +428,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <button
             type="button"
+            id="auth-tab-register-btn"
             onClick={() => {
               setActiveTab('register');
               setRegError(null);
@@ -396,6 +446,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {currentUser && (
             <button
               type="button"
+              id="auth-tab-profile-btn"
               onClick={() => setActiveTab('profile')}
               className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'profile'
@@ -408,6 +459,154 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           )}
         </div>
+
+        {/* TAB 0: PUBLIC LANDING VIEW (Served strictly when user is logged out) */}
+        {activeTab === 'landing' && !currentUser && (
+          <div className="space-y-5 animate-fadeIn relative z-10">
+            {/* Brand Hero & Value Proposition Header */}
+            <div className="text-center space-y-2.5 pt-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[10px] sm:text-[11px] font-mono font-semibold text-cyan-300">
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span>INTELLIGENT ACADEMIC & ROUTINE OS</span>
+              </div>
+
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight leading-snug">
+                Master Your Daily Routine. <br className="hidden sm:inline" />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-300 to-indigo-400">
+                  Elevate Your Academic Edge.
+                </span>
+              </h1>
+
+              <p className="text-xs text-slate-300 max-w-xl mx-auto leading-relaxed">
+                TimeForge is the centralized workspace engineered for students, researchers, and faculty to synchronize daily habits, academic timetables, and productivity streaks with zero distractions.
+              </p>
+            </div>
+
+            {/* Core Value Proposition Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Value Prop 1 */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 hover:border-cyan-500/30 transition-all space-y-1.5 group">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <h3 className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
+                  12 Pre-Seeded Routine Habits
+                </h3>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Start day one with a battle-tested daily schedule — morning workout, deep learning blocks, review sessions, and restorative sleep.
+                </p>
+              </div>
+
+              {/* Value Prop 2 */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 hover:border-cyan-500/30 transition-all space-y-1.5 group">
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <h3 className="text-xs font-bold text-white group-hover:text-cyan-300 transition-colors">
+                  Dynamic Class Timetable
+                </h3>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Interactive schedule matrix with subject codes, classroom locations, professor assignments, and live period countdowns.
+                </p>
+              </div>
+
+              {/* Value Prop 3 */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 hover:border-cyan-500/30 transition-all space-y-1.5 group">
+                <div className="w-8 h-8 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <h3 className="text-xs font-bold text-white group-hover:text-purple-300 transition-colors">
+                  Dual-Tier AI Copilot
+                </h3>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Intelligent agent to parse syllabi, balance study workloads, log deep work sessions, and keep your consistency streak alive.
+                </p>
+              </div>
+
+              {/* Value Prop 4 */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 hover:border-cyan-500/30 transition-all space-y-1.5 group">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition-colors">
+                  Zero-Leak Tenant Isolation
+                </h3>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Strict isolation for every student. Zero guest visibility into personal tasks, routine logs, streak records, or private containers.
+                </p>
+              </div>
+            </div>
+
+            {/* Platform Feature Badges */}
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 py-1 text-[11px] text-slate-400 border-y border-white/5">
+              <span className="flex items-center gap-1">
+                <Check className="w-3.5 h-3.5 text-cyan-400" /> Free Student Vault
+              </span>
+              <span className="hidden sm:inline text-slate-600">•</span>
+              <span className="flex items-center gap-1">
+                <Check className="w-3.5 h-3.5 text-cyan-400" /> 12 Pre-Configured Tasks
+              </span>
+              <span className="hidden sm:inline text-slate-600">•</span>
+              <span className="flex items-center gap-1">
+                <Check className="w-3.5 h-3.5 text-cyan-400" /> Zero Guest Leakage
+              </span>
+            </div>
+
+            {/* Required Entry Points (Dual Action Buttons) */}
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                id="landing-register-cta"
+                onClick={() => {
+                  setActiveTab('register');
+                  setRegError(null);
+                }}
+                className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.01]"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Create Student Account</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                id="landing-login-cta"
+                onClick={() => {
+                  setActiveTab('login');
+                  setLoginError(null);
+                }}
+                className="w-full sm:flex-1 py-3 px-4 rounded-xl glass hover:bg-white/10 text-white text-xs font-semibold border border-white/15 flex items-center justify-center gap-2 transition-all hover:scale-[1.01]"
+              >
+                <LogIn className="w-4 h-4 text-cyan-400" />
+                <span>Sign In to Account</span>
+              </button>
+            </div>
+
+            {/* Institutional Administrator Callout */}
+            <div className="p-3 rounded-2xl bg-black/40 border border-white/5 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 shrink-0">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-200 truncate">Institutional Administrator or Faculty?</p>
+                  <p className="text-[11px] text-slate-400 truncate">Log in for administrative locks, timetable authoring & full AI tools.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="landing-admin-login-cta"
+                onClick={() => {
+                  setActiveTab('login');
+                  setLoginError(null);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition-colors shrink-0"
+              >
+                Admin Sign In
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* TAB 1: SIGN IN */}
         {activeTab === 'login' && (
@@ -475,15 +674,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </button>
             </form>
 
-            <div className="text-center text-xs text-slate-400">
-              Don't have an account yet?{' '}
-              <button
-                type="button"
-                onClick={() => setActiveTab('register')}
-                className="text-cyan-400 hover:text-cyan-300 font-semibold underline underline-offset-4"
-              >
-                Create a new profile
-              </button>
+            <div className="text-center text-xs text-slate-400 space-y-2 pt-1 border-t border-white/5">
+              <div>
+                Don't have an account yet?{' '}
+                <button
+                  type="button"
+                  id="login-switch-to-register-btn"
+                  onClick={() => setActiveTab('register')}
+                  className="text-cyan-400 hover:text-cyan-300 font-semibold underline underline-offset-4"
+                >
+                  Create student profile
+                </button>
+              </div>
+              {!currentUser && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('landing')}
+                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors inline-flex items-center gap-1"
+                  >
+                    <span>← Return to TimeForge Overview</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -569,49 +782,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             </div>
 
-            {/* Role Selection */}
+            {/* Role & Access Notice */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Account Role & Access Level</span>
               </label>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setRegRole('user')}
-                  className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
-                    regRole === 'user'
-                      ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 shadow-[0_0_15px_rgba(34,211,238,0.15)]'
-                      : 'glass border-white/5 text-slate-400 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs">
-                    <GraduationCap className="w-4 h-4 text-cyan-400" />
-                    <span>Student / Learner</span>
+              <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300 shrink-0 mt-0.5">
+                  <GraduationCap className="w-4 h-4" />
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white text-xs">Student / Learner Workspace</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/30">
+                      Standard
+                    </span>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    Timetables, 3D torus ring, time logs & streak badges
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setRegRole('admin')}
-                  className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
-                    regRole === 'admin'
-                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
-                      : 'glass border-white/5 text-slate-400 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs">
-                    <ShieldCheck className="w-4 h-4 text-amber-400" />
-                    <span>Faculty / Admin</span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    Institutional caps, curriculum locks & notices
-                  </div>
-                </button>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    New accounts are created as isolated student workspaces with 12 pre-seeded routine habits, personal schedule, and streak tracking. Administrative access is restricted exclusively to the institutional administrator (<span className="text-cyan-300 font-mono">218r1a0543@gmail.com</span>).
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -664,6 +856,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               )}
               <span>{isSubmitting ? 'Creating Account & Seeding Tasks...' : 'Create Account & Start Learning'}</span>
             </button>
+
+            <div className="text-center text-xs text-slate-400 space-y-2 pt-1 border-t border-white/5">
+              <div>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  id="register-switch-to-login-btn"
+                  onClick={() => setActiveTab('login')}
+                  className="text-cyan-400 hover:text-cyan-300 font-semibold underline underline-offset-4"
+                >
+                  Sign in here
+                </button>
+              </div>
+              {!currentUser && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('landing')}
+                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors inline-flex items-center gap-1"
+                  >
+                    <span>← Return to TimeForge Overview</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </form>
         )}
 

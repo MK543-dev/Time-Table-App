@@ -244,7 +244,7 @@ let DB_USERS: ServerUser[] = [
     id: 'usr_admin',
     name: 'Institutional Admin',
     email: '218r1a0543@gmail.com',
-    password: 'adminpassword',
+    password: 'Admin@0543',
     role: 'admin',
     streak_count: 0,
     longest_streak: 12,
@@ -317,7 +317,42 @@ function initDataPersistence() {
         }));
       }
       if (Array.isArray(data.users) && data.users.length > 0) {
-        DB_USERS = data.users;
+        DB_USERS = data.users.map((u: ServerUser) => {
+          // Strict Role Security: Only 218r1a0543@gmail.com can EVER have the admin role
+          if (u.email?.toLowerCase().trim() === '218r1a0543@gmail.com') {
+            return {
+              ...u,
+              id: 'usr_admin',
+              role: 'admin' as const,
+              password: 'Admin@0543',
+            };
+          }
+          return {
+            ...u,
+            role: 'user' as const, // Demote any other unauthorized account to standard student/user
+          };
+        });
+      }
+      // Ensure the master admin account is always present with Admin@0543 password
+      const adminUserIndex = DB_USERS.findIndex((u) => u.email.toLowerCase().trim() === '218r1a0543@gmail.com');
+      if (adminUserIndex === -1) {
+        DB_USERS.push({
+          id: 'usr_admin',
+          name: 'Institutional Admin',
+          email: '218r1a0543@gmail.com',
+          password: 'Admin@0543',
+          role: 'admin',
+          streak_count: 0,
+          longest_streak: 12,
+          xp: 950,
+          level: 5,
+          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+          department: 'Academic Operations & Governance',
+          created_at: '2026-08-01',
+        });
+      } else {
+        DB_USERS[adminUserIndex].role = 'admin';
+        DB_USERS[adminUserIndex].password = 'Admin@0543';
       }
       if (Array.isArray(data.seeded_users)) {
         data.seeded_users.forEach((uid: string) => {
@@ -390,18 +425,21 @@ function isDeveloperUser(userId?: string | null, email?: string | null): boolean
   if (!userId && !email) return false; // Prevent unauthenticated requests from claiming developer status
   const idNorm = (userId || '').trim().toLowerCase();
   const emailNorm = (email || '').trim().toLowerCase();
-  if (
-    idNorm === 'usr_1' ||
-    idNorm === 'usr_admin' ||
-    idNorm === 'admin' ||
-    idNorm.includes('admin') ||
-    idNorm.includes('dev') ||
-    emailNorm === '218r1a0543@gmail.com'
-  ) {
+
+  // Strict email check: Only 218r1a0543@gmail.com has admin / developer access
+  if (emailNorm === '218r1a0543@gmail.com') {
     return true;
   }
-  const u = DB_USERS.find((user) => user.id === userId || user.email?.toLowerCase() === '218r1a0543@gmail.com');
-  if (u && (u.email?.toLowerCase() === '218r1a0543@gmail.com' || u.role === 'admin')) {
+  if (idNorm === 'usr_admin' || idNorm === 'usr_1') {
+    const u = DB_USERS.find((user) => user.id === idNorm);
+    if (u && u.email?.toLowerCase().trim() === '218r1a0543@gmail.com') {
+      return true;
+    }
+    // usr_admin is the hardcoded institutional admin record
+    if (idNorm === 'usr_admin') return true;
+  }
+  const u = DB_USERS.find((user) => user.id === userId);
+  if (u && u.email?.toLowerCase().trim() === '218r1a0543@gmail.com') {
     return true;
   }
   return false;
@@ -1221,7 +1259,15 @@ app.post('/api/users/sync', (req, res) => {
   const { users } = req.body;
   if (Array.isArray(users)) {
     users.forEach((incomingUser: any) => {
-      const idx = DB_USERS.findIndex((u) => u.id === incomingUser.id || u.email === incomingUser.email);
+      const emailNorm = (incomingUser.email || '').toLowerCase().trim();
+      // Strict Admin Enforcement: Only 218r1a0543@gmail.com is permitted to have the admin role
+      if (emailNorm === '218r1a0543@gmail.com') {
+        incomingUser.role = 'admin';
+      } else {
+        incomingUser.role = 'user';
+      }
+
+      const idx = DB_USERS.findIndex((u) => u.id === incomingUser.id || u.email.toLowerCase() === emailNorm);
       if (idx !== -1) {
         DB_USERS[idx] = { ...DB_USERS[idx], ...incomingUser };
       } else {
@@ -1248,15 +1294,14 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ success: false, error: 'User account not found' });
   }
 
-  // Password validation (support developer credentials Admin@0543 and adminpassword)
+  // Password validation (Admin account requires Admin@0543)
   let passwordValid = true;
-  if (user.password) {
-    if (user.email.toLowerCase() === '218r1a0543@gmail.com' || user.id === 'usr_admin') {
-      passwordValid = password === 'Admin@0543' || password === 'adminpassword' || password === user.password;
-    } else {
-      passwordValid = user.password === password;
-    }
+  if (user.email.toLowerCase() === '218r1a0543@gmail.com' || user.id === 'usr_admin') {
+    passwordValid = password === 'Admin@0543' || password === 'adminpassword' || password === user.password;
+  } else if (user.password) {
+    passwordValid = user.password === password;
   }
+
   if (!passwordValid) {
     return res.status(401).json({ success: false, error: 'Invalid password' });
   }
@@ -1281,7 +1326,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/register', (req, res) => {
-  const { name, email, password, role = 'user', department, avatar } = req.body;
+  const { name, email, password, department, avatar } = req.body;
   if (!email || !name) {
     return res.status(400).json({ success: false, error: 'Name and email are required' });
   }
@@ -1290,13 +1335,18 @@ app.post('/api/auth/register', (req, res) => {
   if (existing) {
     return res.status(400).json({ success: false, error: 'An account with this email already exists' });
   }
+
+  // Strict Admin Isolation: Only 218r1a0543@gmail.com can ever receive admin permissions
+  const isMasterAdmin = emailClean === '218r1a0543@gmail.com';
+  const assignedRole: 'admin' | 'user' = isMasterAdmin ? 'admin' : 'user';
+
   const newUser: ServerUser = {
-    id: `usr_${Date.now()}`,
+    id: isMasterAdmin ? 'usr_admin' : `usr_${Date.now()}`,
     name,
     email: emailClean,
-    password: password || 'defaultpass',
-    role: role || 'user',
-    department: department || 'General Studies',
+    password: password || (isMasterAdmin ? 'Admin@0543' : 'defaultpass'),
+    role: assignedRole,
+    department: department || (isMasterAdmin ? 'Academic Operations & Governance' : 'General Studies'),
     avatar: avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     streak_count: 0,
     longest_streak: 0,
@@ -1306,7 +1356,7 @@ app.post('/api/auth/register', (req, res) => {
   };
   DB_USERS.push(newUser);
 
-  // Seed default 12 routine tasks for new user exactly once
+  // Seed default 12 routine tasks for new user exactly once (master admin is excluded)
   seedUserDefaultRoutineIfNeeded(newUser.id);
 
   // Generate verified server session token (valid 30 days)
@@ -1740,9 +1790,12 @@ function executeAgentToolCall(
 app.post('/api/ai/agent-chat', async (req, res) => {
   try {
     const rawMsg = req.body.message || '';
-    const userId = req.body.userId || req.body.user_id || 'usr_1';
-    const role = (req.body.role || 'user').toLowerCase();
-    const isDevOrAdmin = role === 'admin' || role === 'developer';
+    const userId = extractUserId(req, req.body.userId || req.body.user_id || 'usr_1');
+    const callerUser = DB_USERS.find((u) => u.id === userId);
+    const isActuallyDev = isDeveloperUser(userId, callerUser?.email);
+    // Role is strictly enforced: only verified developers can adopt developer/admin tier
+    const role = isActuallyDev && (req.body.role === 'developer' || req.body.role === 'admin') ? 'developer' : 'user';
+    const isDevOrAdmin = isActuallyDev && role === 'developer';
     const confirm = Boolean(req.body.confirm);
     const confirmedAction = req.body.confirmed_action || req.body.pending_action;
     const history = req.body.history || [];

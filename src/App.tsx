@@ -127,7 +127,7 @@ export default function App() {
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [isAnnouncementsModalOpen, setIsAnnouncementsModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(() => !currentUser);
-  const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'profile'>('login');
+  const [authModalMode, setAuthModalMode] = useState<'landing' | 'login' | 'register' | 'profile'>('landing');
   const [unreadAnnouncementsCount, setUnreadAnnouncementsCount] = useState(2);
 
   // Active Timer state
@@ -662,7 +662,7 @@ export default function App() {
   };
 
   // Authentication Handlers
-  const handleOpenAuthModal = (mode: 'login' | 'register' | 'profile' = 'login') => {
+  const handleOpenAuthModal = (mode: 'landing' | 'login' | 'register' | 'profile' = 'login') => {
     setAuthModalMode(mode);
     setIsAuthModalOpen(true);
   };
@@ -673,29 +673,39 @@ export default function App() {
   };
 
   const handleRegister = (newUser: RegisteredAccount) => {
+    const isMasterAdmin = newUser.email.toLowerCase().trim() === '218r1a0543@gmail.com';
+    const sanitizedUser: RegisteredAccount = {
+      ...newUser,
+      role: isMasterAdmin ? 'admin' : 'user',
+    };
     setRegisteredUsers((prev) => {
-      const updated = [...prev, newUser];
+      const updated = [...prev, sanitizedUser];
       localStorage.setItem('timeforge_registered_users', JSON.stringify(updated));
       return updated;
     });
-    setCurrentUser(newUser);
+    setCurrentUser(sanitizedUser);
     setIsAuthModalOpen(false);
   };
 
   const handleUpdateProfile = (updatedUser: User) => {
-    setCurrentUser(updatedUser);
+    const isMasterAdmin = updatedUser.email.toLowerCase().trim() === '218r1a0543@gmail.com';
+    const sanitizedUser: User = {
+      ...updatedUser,
+      role: isMasterAdmin ? 'admin' : 'user',
+    };
+    setCurrentUser(sanitizedUser);
     setRegisteredUsers((prev) => {
-      const index = prev.findIndex((u) => u.id === updatedUser.id || u.email === updatedUser.email);
+      const index = prev.findIndex((u) => u.id === sanitizedUser.id || u.email === sanitizedUser.email);
       let updatedList = [...prev];
       if (index >= 0) {
-        updatedList[index] = { ...updatedList[index], ...updatedUser };
+        updatedList[index] = { ...updatedList[index], ...sanitizedUser };
       } else {
-        updatedList.push(updatedUser);
+        updatedList.push(sanitizedUser);
       }
       localStorage.setItem('timeforge_registered_users', JSON.stringify(updatedList));
       return updatedList;
     });
-    localStorage.setItem('timeforge_user', JSON.stringify(updatedUser));
+    localStorage.setItem('timeforge_user', JSON.stringify(sanitizedUser));
   };
 
   const handleLogout = () => {
@@ -709,16 +719,8 @@ export default function App() {
     setCurrentUser(null);
     localStorage.removeItem('timeforge_user');
     localStorage.removeItem('timeforge_session_token');
-    setAuthModalMode('login');
+    setAuthModalMode('landing');
     setIsAuthModalOpen(true);
-  };
-
-  // Role Switcher (Alex Rivera <-> Dr. Eleanor Vance)
-  const handleSwitchUser = (role: 'admin' | 'user') => {
-    const targetUser =
-      registeredUsers.find((u) => u.role === role) ||
-      (role === 'admin' ? ADMIN_USER : CURRENT_USER);
-    setCurrentUser(targetUser);
   };
 
   // Blocking Authentication Gate: If no user is authenticated, render ONLY the Login/Register modal
@@ -767,7 +769,6 @@ export default function App() {
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         currentUser={currentUser}
-        onSwitchUser={handleSwitchUser}
         onOpenAuthModal={handleOpenAuthModal}
         theme={theme}
         setTheme={setTheme}
@@ -919,16 +920,10 @@ export default function App() {
             </p>
             <div className="flex items-center justify-center gap-3 pt-2">
               <button
-                onClick={() => handleSwitchUser('admin')}
-                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-amber-500/20"
-              >
-                Switch to Admin Account (218r1a0543@gmail.com)
-              </button>
-              <button
                 onClick={() => handleOpenAuthModal('login')}
-                className="px-4 py-2 rounded-xl glass hover:bg-white/10 text-slate-200 text-xs font-semibold border border-white/10"
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2"
               >
-                Sign In with Credentials
+                <span>Sign In with Institutional Admin Account</span>
               </button>
             </div>
           </div>
