@@ -231,7 +231,12 @@ let DB_DAILY_COMPLETIONS: ServerDailyCompletion[] = [
 ];
 
 // Persistent multi-user database storage for Cloud Run & Cross-Device execution
-const STORAGE_DIR = process.env.DATA_DIR || path.join(process.cwd(), '.data');
+// Vercel's filesystem is read-only except /tmp — writing anywhere else
+// throws. Note this data still won't survive between cold starts on Vercel
+// (each invocation may get a fresh container); real persistence there needs
+// an external database, not local disk. On Cloud Run/local dev this still
+// defaults to a normal project-relative folder that does persist.
+const STORAGE_DIR = process.env.DATA_DIR || (process.env.VERCEL ? '/tmp/timeforge-data' : path.join(process.cwd(), '.data'));
 const STORAGE_FILE = path.join(STORAGE_DIR, 'timeforge_db.json');
 
 export interface ServerUser {
@@ -2386,21 +2391,31 @@ CAPABILITIES:
 
   } catch (error: any) {
     console.error('Agent chat error or timeout:', error);
-    // Instantaneous graceful fallback
-    const rawMsg = req.body?.message || '';
-    const userId = req.body?.userId || req.body?.user_id || 'usr_1';
-    const streakInfo = calculateUserStreak(userId);
-    const todayTasks = getDailyTasksWithStatus(userId, new Date().toISOString().split('T')[0]);
-    const done = todayTasks.filter((t) => t.completed).length;
+    // Instantaneous graceful fallback — wrapped in its own try/catch so a
+    // second failure while building the fallback can't escape as an
+    // unhandled rejection (which Express 4's async handlers don't catch,
+    // and which surfaces to the client as a bare, bodyless 500).
+    try {
+      const userId = req.body?.userId || req.body?.user_id || 'usr_1';
+      const streakInfo = calculateUserStreak(userId);
+      const todayTasks = getDailyTasksWithStatus(userId, new Date().toISOString().split('T')[0]);
+      const done = todayTasks.filter((t) => t.completed).length;
 
-    return res.json({
-      success: true,
-      reply: `⚡ **TimeForge Agent Status**:\n• Current Streak: **${streakInfo.streak} days**\n• Today's Routine: **${done}/${todayTasks.length} completed**\n\nI am ready for your commands (e.g. *"Set streak to 5"*, *"Mark today 100%"*, *"Add task"*, *"Check routine status"*).`,
-      message: `TimeForge Agent is online. Streak: ${streakInfo.streak} days.`,
-      toolResults: [],
-      actions_taken: [],
-      streak: streakInfo.streak,
-    });
+      return res.json({
+        success: true,
+        reply: `⚡ **TimeForge Agent Status**:\n• Current Streak: **${streakInfo.streak} days**\n• Today's Routine: **${done}/${todayTasks.length} completed**\n\nI am ready for your commands (e.g. *"Set streak to 5"*, *"Mark today 100%"*, *"Add task"*, *"Check routine status"*).`,
+        message: `TimeForge Agent is online. Streak: ${streakInfo.streak} days.`,
+        toolResults: [],
+        actions_taken: [],
+        streak: streakInfo.streak,
+      });
+    } catch (fallbackError: any) {
+      console.error('Agent chat fallback also failed:', fallbackError);
+      return res.status(500).json({
+        success: false,
+        error: 'The AI agent hit an unexpected error. Please try again.',
+      });
+    }
   }
 });
 
@@ -2699,6 +2714,24 @@ Return ONLY JSON:
     console.error('Parse syllabus error:', error);
     res.status(500).json({ error: error.message || 'Failed to parse syllabus' });
   }
+});
+
+// ==========================================
+// GLOBAL ERROR HANDLER (must be registered after all routes)
+// ==========================================
+// Catches anything not already caught inside a route handler — a malformed
+// request body, a bug in a handler with no try/catch, etc. — and returns a
+// clean JSON error instead of Express's default HTML error page or an
+// unhandled rejection that surfaces as a bare, bodyless 500.
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(err?.status || 500).json({
+    success: false,
+    error: 'Internal server error. Please try again.',
+  });
 });
 
 // Setup Vite development middleware or static production serving
