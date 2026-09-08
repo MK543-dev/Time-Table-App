@@ -1,11 +1,38 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+// ==========================================
+// PASSWORD HASHING HELPERS
+// ==========================================
+// Bcrypt hashes always start with "$2" (e.g. $2a$, $2b$). Anything else stored
+// in the `password` field is treated as legacy plaintext left over from an
+// earlier version of this app, and is transparently upgraded to a hash the
+// next time that user logs in successfully.
+function isBcryptHash(value?: string | null): boolean {
+  return typeof value === 'string' && /^\$2[aby]?\$\d{2}\$/.test(value);
+}
+
+function hashPasswordSync(plain: string): string {
+  return bcrypt.hashSync(plain, 10);
+}
+
+// Returns { valid, needsRehash } — needsRehash is true when the stored value
+// was legacy plaintext that matched, so the caller can upgrade it to a hash.
+function verifyPassword(plain: string, stored?: string | null): { valid: boolean; needsRehash: boolean } {
+  if (!stored) return { valid: false, needsRehash: false };
+  if (isBcryptHash(stored)) {
+    return { valid: bcrypt.compareSync(plain, stored), needsRehash: false };
+  }
+  // Legacy plaintext account — compare directly, flag for migration on success.
+  return { valid: plain === stored, needsRehash: plain === stored };
+}
 
 const app = express();
 // Port resolution:
@@ -225,12 +252,16 @@ export interface ServerUser {
   created_at?: string;
 }
 
+// Default admin password is configurable via env var so it isn't hardcoded in
+// source; falls back to a dev-only default if unset (change this in production).
+const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@0543';
+
 let DB_USERS: ServerUser[] = [
   {
     id: 'usr_1',
     name: 'Alex Rivera',
     email: 'alex.rivera@university.edu',
-    password: 'password123',
+    password: hashPasswordSync('password123'),
     role: 'user',
     streak_count: 0,
     longest_streak: 5,
@@ -244,7 +275,7 @@ let DB_USERS: ServerUser[] = [
     id: 'usr_admin',
     name: 'Institutional Admin',
     email: '218r1a0543@gmail.com',
-    password: 'Admin@0543',
+    password: hashPasswordSync(ADMIN_DEFAULT_PASSWORD),
     role: 'admin',
     streak_count: 0,
     longest_streak: 12,
@@ -324,7 +355,9 @@ function initDataPersistence() {
               ...u,
               id: 'usr_admin',
               role: 'admin' as const,
-              password: 'Admin@0543',
+              // Keep whatever password (hashed) is already on record — do NOT
+              // clobber a real/changed password back to the default on every restart.
+              password: u.password || hashPasswordSync(ADMIN_DEFAULT_PASSWORD),
             };
           }
           return {
@@ -333,14 +366,14 @@ function initDataPersistence() {
           };
         });
       }
-      // Ensure the master admin account is always present with Admin@0543 password
+      // Ensure the master admin account is always present
       const adminUserIndex = DB_USERS.findIndex((u) => u.email.toLowerCase().trim() === '218r1a0543@gmail.com');
       if (adminUserIndex === -1) {
         DB_USERS.push({
           id: 'usr_admin',
           name: 'Institutional Admin',
           email: '218r1a0543@gmail.com',
-          password: 'Admin@0543',
+          password: hashPasswordSync(ADMIN_DEFAULT_PASSWORD),
           role: 'admin',
           streak_count: 0,
           longest_streak: 12,
@@ -352,7 +385,10 @@ function initDataPersistence() {
         });
       } else {
         DB_USERS[adminUserIndex].role = 'admin';
-        DB_USERS[adminUserIndex].password = 'Admin@0543';
+        // Only fill in a password if this record somehow has none — never overwrite an existing one.
+        if (!DB_USERS[adminUserIndex].password) {
+          DB_USERS[adminUserIndex].password = hashPasswordSync(ADMIN_DEFAULT_PASSWORD);
+        }
       }
       if (Array.isArray(data.seeded_users)) {
         data.seeded_users.forEach((uid: string) => {
@@ -445,27 +481,29 @@ function isDeveloperUser(userId?: string | null, email?: string | null): boolean
   return false;
 }
 
-// Helper to extract user_id from authorization header, query, body, or headers
-function extractUserId(req: express.Request, fallback = ''): string {
-  // 1. Check Authorization Bearer token or x-session-token header first
+// Resolves the calling user strictly from a verified, unexpired session token.
+// Never trusts a client-supplied user_id/userId (query, body, or header) — that
+// value used to be accepted as a fallback, which let any caller read or modify
+// another account's data just by naming its ID.
+function getSessionUser(req: express.Request): ServerUser | null {
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-  const sessionToken = (bearerToken || (req.headers['x-session-token'] as string))?.trim();
-  if (sessionToken && DB_SESSIONS.has(sessionToken)) {
-    const sess = DB_SESSIONS.get(sessionToken)!;
-    if (Date.now() < sess.expires_at) {
-      return sess.user_id;
-    } else {
-      DB_SESSIONS.delete(sessionToken);
-      persistDataToDisk();
-    }
-  }
+  const sessionToken = (bearerToken || (req.headers['x-session-token'] as string) || (req.body?.token as string) || (req.query?.token as string))?.trim();
+  if (!sessionToken) return null;
 
-  // 2. Check explicit query, body, or custom header
-  const queryUser = (req.query?.user_id as string) || (req.query?.userId as string);
-  const bodyUser = req.body?.user_id || req.body?.userId;
-  const headerUser = (req.headers['x-user-id'] as string) || (req.headers['x-userid'] as string);
-  return (queryUser || bodyUser || headerUser || fallback).trim();
+  const sess = DB_SESSIONS.get(sessionToken);
+  if (!sess) return null;
+  if (Date.now() > sess.expires_at) {
+    DB_SESSIONS.delete(sessionToken);
+    persistDataToDisk();
+    return null;
+  }
+  return DB_USERS.find((u) => u.id === sess.user_id) || null;
+}
+
+// Returns the authenticated user's id, or '' if there is no valid session.
+function extractUserId(req: express.Request): string {
+  return getSessionUser(req)?.id || '';
 }
 
 // Atomically seed the 12 default routine tasks for a user if they have never been seeded
@@ -665,6 +703,9 @@ const handleGetDailyTasks = (req: express.Request, res: express.Response) => {
 const handleCompleteDailyTask = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
   const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   const isDev = isDeveloperUser(userId);
   const dateStr = (req.body?.date || req.query?.date || new Date().toISOString().split('T')[0]) as string;
 
@@ -710,6 +751,9 @@ const handleCompleteDailyTask = (req: express.Request, res: express.Response) =>
 const handleUncompleteDailyTask = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
   const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   const isDev = isDeveloperUser(userId);
   const dateStr = (req.body?.date || req.query?.date || new Date().toISOString().split('T')[0]) as string;
 
@@ -754,6 +798,9 @@ const handleUncompleteDailyTask = (req: express.Request, res: express.Response) 
 const handleToggleDailyTask = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
   const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   const isDev = isDeveloperUser(userId);
   const dateStr = (req.body?.date || req.query?.date || new Date().toISOString().split('T')[0]) as string;
 
@@ -898,6 +945,9 @@ const handleGetDailyHistory = (req: express.Request, res: express.Response) => {
 const handleToggleHistoryCell = (req: express.Request, res: express.Response) => {
   const { date, task_id, completed, action } = req.body;
   const user_id = extractUserId(req);
+  if (!user_id) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   const isDev = isDeveloperUser(user_id);
   if (!date || !task_id) {
     return res.status(400).json({ error: 'Date and task_id are required' });
@@ -981,6 +1031,9 @@ const handleToggleHistoryCell = (req: express.Request, res: express.Response) =>
 const handleBatchResetDate = (req: express.Request, res: express.Response) => {
   const { date } = req.body;
   const user_id = extractUserId(req);
+  if (!user_id) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   const isDev = isDeveloperUser(user_id);
   if (!date) {
     return res.status(400).json({ error: 'Date is required' });
@@ -1010,6 +1063,9 @@ const handleBatchResetDate = (req: express.Request, res: express.Response) => {
 const handleBatchUpdateDate = (req: express.Request, res: express.Response) => {
   const { date, completions = {} } = req.body;
   const user_id = extractUserId(req);
+  if (!user_id) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   const isDev = isDeveloperUser(user_id);
   if (!date) {
     return res.status(400).json({ error: 'Date is required' });
@@ -1070,6 +1126,9 @@ const handleGetTaskDefinitions = (req: express.Request, res: express.Response) =
 const handleCreateTaskDefinition = (req: express.Request, res: express.Response) => {
   const { title, time_slot = '30mins', duration_minutes = 30, category = 'General', notes = '', icon = 'CheckCircle2' } = req.body;
   const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'Task title is required' });
   }
@@ -1104,10 +1163,13 @@ const handleCreateTaskDefinition = (req: express.Request, res: express.Response)
 
 const handleUpdateTaskDefinition = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
-  const userId = extractUserId(req, '');
+  const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
   const { title, time_slot, duration_minutes, category, notes, icon, order } = req.body;
 
-  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId && (!userId || t.user_id === userId));
+  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId && t.user_id === userId);
   if (taskIndex === -1) {
     return res.status(404).json({ error: 'Daily task definition not found' });
   }
@@ -1135,9 +1197,12 @@ const handleUpdateTaskDefinition = (req: express.Request, res: express.Response)
 
 const handleDeleteTaskDefinition = (req: express.Request, res: express.Response) => {
   const taskId = req.params.task_id;
-  const userId = extractUserId(req, '');
+  const userId = extractUserId(req);
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Missing or invalid session.' });
+  }
 
-  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId && (!userId || t.user_id === userId));
+  const taskIndex = DB_DAILY_TASKS.findIndex((t) => t.id === taskId && t.user_id === userId);
   if (taskIndex === -1) {
     return res.status(404).json({ error: 'Daily task definition not found' });
   }
@@ -1248,6 +1313,13 @@ app.post('/api/daily-tasks/batch-reset', handleBatchResetDate);
 // ==========================================
 
 app.get('/api/users', (req, res) => {
+  const caller = getSessionUser(req);
+  if (!caller) {
+    return res.status(401).json({ success: false, error: 'Authentication required.' });
+  }
+  if (!isDeveloperUser(caller.id, caller.email)) {
+    return res.status(403).json({ success: false, error: 'Admin permission required.' });
+  }
   const sanitized = DB_USERS.map(({ password, ...u }) => ({
     ...u,
     streak_count: USER_STREAKS[u.id] !== undefined ? USER_STREAKS[u.id] : calculateUserStreak(u.id).streak,
@@ -1256,6 +1328,13 @@ app.get('/api/users', (req, res) => {
 });
 
 app.post('/api/users/sync', (req, res) => {
+  const caller = getSessionUser(req);
+  if (!caller) {
+    return res.status(401).json({ success: false, error: 'Authentication required.' });
+  }
+  if (!isDeveloperUser(caller.id, caller.email)) {
+    return res.status(403).json({ success: false, error: 'Admin permission required.' });
+  }
   const { users } = req.body;
   if (Array.isArray(users)) {
     users.forEach((incomingUser: any) => {
@@ -1265,6 +1344,13 @@ app.post('/api/users/sync', (req, res) => {
         incomingUser.role = 'admin';
       } else {
         incomingUser.role = 'user';
+      }
+      // Never accept a plaintext password over sync — hash it, or drop it so an
+      // existing hashed password isn't clobbered.
+      if (incomingUser.password && !isBcryptHash(incomingUser.password)) {
+        incomingUser.password = hashPasswordSync(incomingUser.password);
+      } else if (!incomingUser.password) {
+        delete incomingUser.password;
       }
 
       const idx = DB_USERS.findIndex((u) => u.id === incomingUser.id || u.email.toLowerCase() === emailNorm);
@@ -1294,16 +1380,15 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ success: false, error: 'User account not found' });
   }
 
-  // Password validation (Admin account requires Admin@0543)
-  let passwordValid = true;
-  if (user.email.toLowerCase() === '218r1a0543@gmail.com' || user.id === 'usr_admin') {
-    passwordValid = password === 'Admin@0543' || password === 'adminpassword' || password === user.password;
-  } else if (user.password) {
-    passwordValid = user.password === password;
-  }
+  // Password validation — bcrypt for hashed accounts, with automatic
+  // migration for any legacy plaintext account that still matches.
+  const { valid: passwordValid, needsRehash } = verifyPassword(password, user.password);
 
   if (!passwordValid) {
     return res.status(401).json({ success: false, error: 'Invalid password' });
+  }
+  if (needsRehash) {
+    user.password = hashPasswordSync(password);
   }
 
   // Ensure default routine is seeded for this user if first login (developer/admin are excluded)
@@ -1340,11 +1425,12 @@ app.post('/api/auth/register', (req, res) => {
   const isMasterAdmin = emailClean === '218r1a0543@gmail.com';
   const assignedRole: 'admin' | 'user' = isMasterAdmin ? 'admin' : 'user';
 
+  const rawPassword = password || (isMasterAdmin ? ADMIN_DEFAULT_PASSWORD : 'defaultpass');
   const newUser: ServerUser = {
     id: isMasterAdmin ? 'usr_admin' : `usr_${Date.now()}`,
     name,
     email: emailClean,
-    password: password || (isMasterAdmin ? 'Admin@0543' : 'defaultpass'),
+    password: hashPasswordSync(rawPassword),
     role: assignedRole,
     department: department || (isMasterAdmin ? 'Academic Operations & Governance' : 'General Studies'),
     avatar: avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -1423,8 +1509,17 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.post('/api/auth/update-profile', (req, res) => {
+  const caller = getSessionUser(req);
+  if (!caller) {
+    return res.status(401).json({ success: false, error: 'Authentication required.' });
+  }
   const { id, name, department, avatar, theme_pref } = req.body;
-  const idx = DB_USERS.findIndex((u) => u.id === id);
+  const targetId = id || caller.id;
+  // Only admins/developers may edit a profile that isn't their own.
+  if (targetId !== caller.id && !isDeveloperUser(caller.id, caller.email)) {
+    return res.status(403).json({ success: false, error: 'You can only edit your own profile.' });
+  }
+  const idx = DB_USERS.findIndex((u) => u.id === targetId);
   if (idx === -1) {
     return res.status(404).json({ success: false, error: 'User not found' });
   }
@@ -1438,10 +1533,16 @@ app.post('/api/auth/update-profile', (req, res) => {
 });
 
 app.post('/api/daily-tasks/streak/modify', (req, res) => {
-  const { user_id, streak, role = 'user' } = req.body;
-  if (role !== 'admin' && role !== 'developer') {
+  const caller = getSessionUser(req);
+  if (!caller) {
+    return res.status(401).json({ success: false, error: 'Authentication required.' });
+  }
+  // Role is derived from the verified session — a client-supplied `role` field
+  // is never trusted for authorization.
+  if (!isDeveloperUser(caller.id, caller.email)) {
     return res.status(403).json({ success: false, error: 'Developer or Admin permission required' });
   }
+  const { user_id, streak } = req.body;
   const streakNum = Math.max(0, parseInt(streak, 10) || 0);
   USER_STREAKS[user_id] = streakNum;
   const user = DB_USERS.find((u) => u.id === user_id);
@@ -1790,7 +1891,10 @@ function executeAgentToolCall(
 app.post('/api/ai/agent-chat', async (req, res) => {
   try {
     const rawMsg = req.body.message || '';
-    const userId = extractUserId(req, req.body.userId || req.body.user_id || 'usr_1');
+    const userId = extractUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Authentication required. Please sign in.' });
+    }
     const callerUser = DB_USERS.find((u) => u.id === userId);
     const isActuallyDev = isDeveloperUser(userId, callerUser?.email);
     // Role is strictly enforced: only verified developers can adopt developer/admin tier
