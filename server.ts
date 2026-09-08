@@ -2725,4 +2725,12 @@ async function startServer() {
   });
 }
 
-startServer();
+// Vercel invokes this module as a serverless function (see api/index.ts) and
+// serves the static frontend itself via its own CDN/output directory — it
+// never needs (and can't use) a persistent app.listen(). Everywhere else
+// (local dev, Docker/Cloud Run) this self-hosts normally.
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
