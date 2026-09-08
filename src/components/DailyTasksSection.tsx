@@ -458,9 +458,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     );
 
     try {
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/daily-tasks/history/toggle-cell', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           date: targetDate,
           task_id: taskId,
@@ -523,9 +526,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     );
 
     try {
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/daily-tasks/batch-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           date: targetDate,
           user_id: userId,
@@ -569,9 +575,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     );
 
     try {
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/daily-tasks/batch-reset', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           date: targetDate,
           user_id: userId,
@@ -816,9 +825,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
 
     // 3. Sync to backend
     try {
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch(`/api/daily-tasks/${taskId}/toggle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           date: activeDate,
           user_id: userId,
@@ -859,9 +871,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     });
 
     try {
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch('/api/daily-tasks/batch-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           date: activeDate,
           user_id: userId,
@@ -880,9 +895,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     });
 
     try {
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch('/api/daily-tasks/batch-reset', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           date: activeDate,
           user_id: userId,
@@ -955,12 +973,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
       setIsModalOpen(false);
 
       try {
+        const token = localStorage.getItem('timeforge_session_token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
         await fetch(`/api/daily-tasks/definitions/${editingTask.id}`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-id': userId,
-          },
+          headers,
           body: JSON.stringify({
             ...updatedDef,
             user_id: userId,
@@ -993,12 +1011,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
       setIsModalOpen(false);
 
       try {
+        const token = localStorage.getItem('timeforge_session_token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
         await fetch('/api/daily-tasks/definitions', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-id': userId,
-          },
+          headers,
           body: JSON.stringify({
             ...newDef,
             user_id: userId,
@@ -1029,11 +1047,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
     setTaskToDelete(null);
 
     try {
+      const token = localStorage.getItem('timeforge_session_token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch(`/api/daily-tasks/definitions/${targetId}?user_id=${userId}`, {
         method: 'DELETE',
-        headers: {
-          'x-user-id': userId,
-        },
+        headers,
       });
     } catch (err) {
       console.warn('Server sync failed, deleted locally.');
@@ -1053,12 +1072,12 @@ export const DailyTasksSection: React.FC<DailyTasksSectionProps> = ({
       localStorage.setItem(STORAGE_KEY_DEFS, JSON.stringify(resetTasks));
 
       try {
+        const token = localStorage.getItem('timeforge_session_token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
         await fetch('/api/daily-tasks/definitions/reset-defaults', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-id': userId,
-          },
+          headers,
           body: JSON.stringify({ user_id: userId }),
         });
       } catch (err) {}

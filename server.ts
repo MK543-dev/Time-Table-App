@@ -633,22 +633,25 @@ function calculateUserStreak(userId: string): { streak: number; isTodayCompleted
     return d.toISOString().split('T')[0];
   };
 
-  const isDate100Percent = (dateStr: string) => {
+  const isDayActive = (dateStr: string) => {
     const defs = getUserTaskDefinitions(userId);
     if (defs.length === 0) return false;
     const tasks = getDailyTasksWithStatus(userId, dateStr);
     const completedCount = tasks.filter((t) => t.completed).length;
-    return completedCount === defs.length;
+    // A day counts toward the streak once at least one task is completed —
+    // it doesn't require every task to be done. A day only breaks the
+    // streak when NOTHING was completed on it.
+    return completedCount > 0;
   };
 
-  const todayCompleted = isDate100Percent(todayStr);
+  const todayCompleted = isDayActive(todayStr);
   const yesterdayStr = getDateStr(1);
-  const yesterdayCompleted = isDate100Percent(yesterdayStr);
+  const yesterdayCompleted = isDayActive(yesterdayStr);
 
   if (todayCompleted) {
     let streak = 1;
     let daysAgo = 1;
-    while (isDate100Percent(getDateStr(daysAgo))) {
+    while (isDayActive(getDateStr(daysAgo))) {
       streak++;
       daysAgo++;
     }
@@ -656,19 +659,19 @@ function calculateUserStreak(userId: string): { streak: number; isTodayCompleted
   }
 
   // Today is not completed yet:
-  // If yesterday was 100% complete, yesterday's earned streak holds.
-  // BUT if yesterday was MISSED (<100% or 0%), the streak is strictly 0!
+  // If yesterday had at least one task done, yesterday's earned streak holds.
+  // BUT if yesterday was fully missed (0 tasks completed), the streak is strictly 0!
   if (yesterdayCompleted) {
     let streak = 1;
     let daysAgo = 2;
-    while (isDate100Percent(getDateStr(daysAgo))) {
+    while (isDayActive(getDateStr(daysAgo))) {
       streak++;
       daysAgo++;
     }
     return { streak, isTodayCompleted: false };
   }
 
-  // Yesterday was missed (<100% or 0%) -> streak is strictly 0!
+  // Yesterday was fully missed (0 tasks completed) -> streak is strictly 0!
   return { streak: 0, isTodayCompleted: false };
 }
 

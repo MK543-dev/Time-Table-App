@@ -138,7 +138,12 @@ export const AgentChatModal: React.FC<AgentChatModalProps> = ({
 
       const res = await fetch('/api/ai/agent-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: (() => {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          const token = localStorage.getItem('timeforge_session_token');
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          return headers;
+        })(),
         body: JSON.stringify({
           message: textToSend,
           role,
