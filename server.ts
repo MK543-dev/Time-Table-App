@@ -2361,7 +2361,7 @@ CAPABILITIES:
 
     // Fast call to Gemini with a 4.5s timeout promise race
     const geminiPromise = ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: rawMsg,
       config: {
         systemInstruction,
@@ -2465,7 +2465,7 @@ Return ONLY valid JSON matching this exact structure:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -2567,7 +2567,7 @@ Return ONLY JSON matching:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -2627,7 +2627,7 @@ Return ONLY JSON with this format:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -2701,7 +2701,7 @@ Return ONLY JSON:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
