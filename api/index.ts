@@ -1,8 +1,14 @@
-// Vercel serverless entry point. Vercel maps requests to /api/* to this
-// function (see the rewrite in vercel.json) and hands them to our existing
-// Express app, which already has every /api/... route registered.
-// Locally and on Cloud Run, server.ts is run directly instead (see its
-// `if (!process.env.VERCEL)` guard) — this file is Vercel-only glue.
+import type { IncomingMessage, ServerResponse } from 'http';
 import app from '../server';
 
-export default app;
+// Vercel serverless entry point.
+// When Vercel rewrites /api/(.*) -> /api, Vercel sets req.url to "/api"
+// and stores the original requested path in x-matched-path or x-vercel-matched-path.
+export default function handler(req: IncomingMessage, res: ServerResponse) {
+  const matchedPath = (req.headers['x-matched-path'] || req.headers['x-vercel-matched-path']) as string | undefined;
+  if (matchedPath && matchedPath.startsWith('/api') && (req.url === '/api' || req.url === '/api/')) {
+    req.url = matchedPath;
+  }
+  return (app as any)(req, res);
+}
+
